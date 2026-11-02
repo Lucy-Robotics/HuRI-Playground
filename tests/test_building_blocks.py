@@ -36,7 +36,7 @@ def test_module_args_match_what_huri_builds():
     packages; a module whose package is not installed is skipped."""
     config = load_catalog_config()
     assert set(config.entries) <= set(CURATED)
-    assert set(config.selected) <= set(config.entries)
+    assert config.selected == "all" or set(config.selected) <= set(config.entries)
     assert set(config.inbound) <= {topics[0] for topics in CURATED.values()}
 
     checked = 0
@@ -56,19 +56,23 @@ def test_module_args_match_what_huri_builds():
 
 
 def test_default_selection_is_a_valid_pipeline():
+    """Every module ticked (`selected: all`): the page opens on a selection
+    HuRI can run, typed or spoken."""
     catalog = load_catalog_config().catalog(details())
+    assert catalog.selected == list(catalog.modules)
     pipeline = catalog.build(catalog.selected)
     config = ClientConfig.from_dict(pipeline.handshake("u"))
     assert set(config.modules) == set(catalog.selected)
-    assert config.send == ["huri.question"]
-    assert config.subscribe == ["huri.token", "huri.audio.out", "huri.motion"]
+    assert config.send == ["huri.question", "huri.audio.in"]
+    assert config.subscribe[:3] == ["huri.token", "huri.audio.out", "huri.motion"]
     assert config.modules["rag"].key == "rag"
 
 
 def test_handshake_subscribes_only_to_what_the_page_renders():
     catalog = load_catalog_config().catalog(details())
     config = ClientConfig.from_dict(catalog.build(list(CURATED)).handshake("u"))
-    assert config.subscribe == list(RENDERED)
+    # Every rendered topic but lips.face, which no curated module produces.
+    assert config.subscribe == [t for t in RENDERED if t != "lips.face"]
     assert config.send == ["huri.question", "huri.audio.in"]
     assert "huri.voice" not in config.subscribe  # produced, but not shown
 

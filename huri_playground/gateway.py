@@ -57,6 +57,7 @@ from huri_core.core.client import HuRIClient, HuRISessionError, decode, encode
 from huri_core.core.events import BytesEvent, EventData
 from starlette.websockets import WebSocketState
 
+from .avatars import AvatarsConfig, InvalidBody, load_avatars_config
 from .limits import RateLimiter, SessionSlots
 from .pipeline import (
     RENDERED,
@@ -172,9 +173,11 @@ class Gateway:
         store: ResponseStore,
         fetch: Callable[[str], Awaitable[Any]] = fetch_json,
         clock: Callable[[], float] = time.monotonic,
+        avatars: AvatarsConfig | None = None,
     ):
         self.settings = settings
         self.catalog_config = catalog_config
+        self.avatars = avatars or AvatarsConfig(avatars={})
         self.questionnaires = questionnaires
         self.store = store
         self.slots = SessionSlots(settings.max_sessions)
@@ -217,6 +220,7 @@ class Gateway:
                 else {"modules": [], "inbound": [], "rendered": [], "selected": []}
             ),
             "questionnaires": [q.definition for q in self.questionnaires],
+            "avatars": self.avatars.public(),
         }
 
     def submit(self, payload: Any) -> JSONResponse:
@@ -268,8 +272,11 @@ class Gateway:
             await _fail(ws, "huri_unavailable")
             return
         try:
-            pipeline = catalog.build(start.get("modules"), start.get("options"))
-        except InvalidPipeline as e:
+            # The avatar's body (measured by the page) for the modules that
+            # fit their motion to it.
+            extra = self.avatars.module_args(start.get("avatar"), start.get("body"))
+            pipeline = catalog.build(start.get("modules"), start.get("options"), extra)
+        except (InvalidPipeline, InvalidBody) as e:
             await _fail(ws, "invalid_pipeline", str(e))
             return
         if not self.slots.try_acquire():
@@ -553,6 +560,7 @@ def create_app(
     gateway = Gateway(
         settings=settings,
         catalog_config=load_catalog_config(),
+        avatars=load_avatars_config(),
         questionnaires=load_questionnaires(settings.questionnaires),
         store=ResponseStore(settings.data_dir),
         fetch=fetch,

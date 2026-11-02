@@ -9,7 +9,7 @@
 # inbound:  topics the browser may publish (the curated `huri.*` topics of
 #           huri-events), each with its own limits. A session gets those its
 #           modules consume.
-# selected: modules ticked when the page opens.
+# selected: modules ticked when the page opens, or `all` of those HuRI runs.
 # groups:   how the page sorts the modules, in this order; a module with no
 #           group (one HuRI added since) goes under "Other".
 # modules.<name>.with: args added when another module is in the same pipeline.
@@ -26,7 +26,7 @@ inbound:
     max_per_minute: 2400
     binary: true # raw 16 kHz int16 PCM
 
-selected: [rag, tts, mov]
+selected: all
 
 groups:
   listen: Hear you
@@ -107,5 +107,5 @@ modules:
   mov:
     group: speak
     label: Gestures
-    description: Mouse-Man gestures as HuRI speaks (EMAGE).
+    description: HuRI gestures as it speaks (EMAGE).
     args: {}

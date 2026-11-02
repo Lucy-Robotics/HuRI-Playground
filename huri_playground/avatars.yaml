@@ -1,0 +1,71 @@
+# The avatars the page shows, in the order it tries them: the first whose
+# model is there, unless the page's ?avatar=<name> asks for another. The
+# models are kept out of git (see the README).
+#
+# Everything about a body's size is computed from its model (bones and mesh),
+# so another avatar works without numbers here; these settings say what to do
+# with it:
+#
+#   model, rig, a_pose, textures: what to load and how its skeleton is named
+#     (rig: "mixamo" or 3ds Max "biped", renamed to Mixamo's); a_pose: it
+#     rests in an A-pose, put in the T-pose gestures are relative to;
+#     textures: its TGA textures, loaded from there as WebP.
+#   height: metres. The model's measurements (huri-module-think's `body`)
+#     are scaled to it.
+#   camera: what the camera frames, from the top of the head down to
+#     head (head and shoulders), chest, waist, knees or full (the feet):
+#     `idle` without gestures, `gestures` with HuRI's `mov` in the session.
+#   motion: idle: scales the idle life (glances, weight shifts, arms);
+#     gestures: scales HuRI's gestures (mov), 1 as EMAGE made them;
+#     pelvis: how much of EMAGE's hip turn and weight shift he keeps (0: hips
+#     still); the legs are solved so his feet stay planted either way;
+#     upright, gaze: 0..1, how much of the chest's sustained lean and of the
+#     head's sustained turn away from the visitor are taken out while he
+#     gestures (EMAGE's speakers lean forward and look down; nods, turns and
+#     beats stay);
+#     arms: 0..1, the same for the upper arms, towards hanging along the body
+#     (EMAGE holds them some 40 degrees out for whole sentences);
+#     torso_guard: swing the arms out of a belly they would go through (for a
+#     cartoon whose belly is rounder than the people EMAGE learned from).
+#   mouth: blend shape weights at full voice, without lip sync; lips: gain on
+#     the lip sync weights (`lips.face`): a number, or `default` and a gain
+#     per ARKit shape (LAM's jawOpen is small: its own head opens the mouth
+#     with mouthLowerDown more than a Rocketbox head does).
+#   body: overrides fields of the measured body, if a measurement is off
+#     (metres, from the pelvis, SMPL-X axes; see huri-module-think's Body).
+
+avatars:
+  man:
+    # scripts/fetch_avatar.sh: Rocketbox Male_Adult_08 (MIT).
+    model: /static/avatar/man/model.fbx
+    rig: biped
+    a_pose: true
+    textures: /static/avatar/man/
+    height: 1.8
+    camera: { idle: full, gestures: full }
+    # Measured on a live session: EMAGE's gestures moved his hands some 40
+    # times more than his idle did, and dropped his head 30 degrees.
+    motion:
+      { idle: 1.3, gestures: 0.8, pelvis: 0.6, upright: 0.7, gaze: 0.8, arms: 0.6, torso_guard: false }
+    mouth: { jawOpen: 0.35, mouthFunnel: 0.1 }
+    # Fitted on his face (lip gap per shape, measured on the mesh) against a
+    # Piper voice's phoneme timings: open vowels 1.2 cm apart, the lips shut
+    # on 80% of "p", "b", "m" (LAM's jawOpen is small, its mouthClose weak).
+    lips: { default: 1.0, jawOpen: 6.0, mouthClose: 2.0 }
+  mouse:
+    # Mouse-Man, from Lucy-Robotics/HuRI_website_demo (Git LFS, 30 MB).
+    model: /static/avatar/model.fbx
+    rig: mixamo
+    a_pose: false
+    height: 1.6
+    camera: { idle: head, gestures: waist }
+    motion:
+      { idle: 1.0, gestures: 1.0, pelvis: 0.3, upright: 0.5, gaze: 0.5, torso_guard: true }
+    mouth: { jawOpen: 0.8, mouthFunnel: 0.2 }
+    lips: 1.0
+
+# Modules that are told the avatar's body: module -> the arg it goes in.
+# huri-module-think solves its thinking poses (a hand at the chin, arms
+# crossed) on it, so the hands land on this avatar.
+body_args:
+  think: body
