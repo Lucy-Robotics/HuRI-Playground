@@ -71,8 +71,8 @@ def test_default_selection_is_a_valid_pipeline():
 def test_handshake_subscribes_only_to_what_the_page_renders():
     catalog = load_catalog_config().catalog(details())
     config = ClientConfig.from_dict(catalog.build(list(CURATED)).handshake("u"))
-    # Every rendered topic but lips.face, which no curated module produces.
-    assert config.subscribe == [t for t in RENDERED if t != "lips.face"]
+    # Every rendered topic but huri.lips.face, which no curated module produces.
+    assert config.subscribe == [t for t in RENDERED if t != "huri.lips.face"]
     assert config.send == ["huri.question", "huri.audio.in"]
     assert "huri.voice" not in config.subscribe  # produced, but not shown
 

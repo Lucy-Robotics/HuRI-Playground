@@ -136,7 +136,7 @@ const SMPLX_JOINTS = [
 const POSE_DIM = 165;
 const EXPR_DIM = 100;
 
-// Lip sync (huri-module-lips-sync's `lips.face`): ARKit's 52 blend shapes,
+// Lip sync (huri-module-lips-sync's `huri.lips.face`): ARKit's 52 blend shapes,
 // in the wire's (alphabetical) order. The eyes keep their own life (blinks);
 // the mouth, jaw, cheeks, nose and brows follow the frames.
 const ARKIT = [
@@ -310,7 +310,7 @@ async function main() {
     gestures.clear();
     lips.clear();
     wideTarget = e.detail.outbound.includes("huri.motion") ? 1 : 0;
-    lipSync = e.detail.outbound.includes("lips.face");
+    lipSync = e.detail.outbound.includes("huri.lips.face");
   });
   window.addEventListener("huri-motion", (e) => {
     const speaker = window.huriSpeaker;
@@ -416,7 +416,7 @@ async function main() {
   container.dataset.state = "ready";
 }
 
-// Lip sync frames (`lips.face`): ARKit weights on the voice's timeline. A
+// Lip sync frames (`huri.lips.face`): ARKit weights on the voice's timeline. A
 // chunk is placed on the AudioContext clock from its pts once the voice it
 // belongs to is scheduled, and played in step with it.
 class FaceTrack {

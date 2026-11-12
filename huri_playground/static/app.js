@@ -131,7 +131,7 @@ const GETS = {
   "huri.token": "writes back",
   "huri.audio.out": "speaks",
   "huri.motion": "gestures",
-  "lips.face": "moves its lips with the voice",
+  "huri.lips.face": "moves its lips with the voice",
   "huri.transcript": "shows what it hears",
   "huri.question": "shows what it understood",
   "huri.emotion": "shows the emotion it senses",
@@ -604,7 +604,7 @@ function onBinary(data) {
     window.dispatchEvent(
       new CustomEvent("huri-motion", { detail: data.slice(start) }),
     );
-  } else if (topic === "lips.face") {
+  } else if (topic === "huri.lips.face") {
     // huri-module-lips-sync, parsed by avatar.js:
     // [f64 BE pts][u32 BE fps][u32 BE frames][float32 LE frames x 52 ARKit]
     window.dispatchEvent(

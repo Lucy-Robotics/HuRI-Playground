@@ -32,7 +32,7 @@ RENDERED: Dict[str, str] = {
     "huri.audio.out": "binary",
     "huri.motion": "binary",
     # huri-module-lips-sync: ARKit weights for the avatar's mouth.
-    "lips.face": "binary",
+    "huri.lips.face": "binary",
     "huri.transcript": "json",
     "huri.question": "json",
     "huri.emotion": "json",

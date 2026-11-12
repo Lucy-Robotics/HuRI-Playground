@@ -28,7 +28,7 @@
 #     torso_guard: swing the arms out of a belly they would go through (for a
 #     cartoon whose belly is rounder than the people EMAGE learned from).
 #   mouth: blend shape weights at full voice, without lip sync; lips: gain on
-#     the lip sync weights (`lips.face`): a number, or `default` and a gain
+#     the lip sync weights (`huri.lips.face`): a number, or `default` and a gain
 #     per ARKit shape (LAM's jawOpen is small: its own head opens the mouth
 #     with mouthLowerDown more than a Rocketbox head does).
 #   body: overrides fields of the measured body, if a measurement is off

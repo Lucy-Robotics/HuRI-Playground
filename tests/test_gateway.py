@@ -304,13 +304,13 @@ def test_question_builder_waits_for_emotion_only_when_one_is_coming(make_client)
 
 def test_lip_sync_streams_the_face_with_the_voice(make_client, monkeypatch):
     """huri-module-lips-sync's `lips`: the avatar's mouth follows its frames."""
-    monkeypatch.setitem(curated.CURATED, "lips", ("huri.audio.out", "lips.face"))
+    monkeypatch.setitem(curated.CURATED, "lips", ("huri.audio.out", "huri.lips.face"))
     client, huri = make_client()
 
     with client.websocket_connect("/ws") as ws:
         ready = start(ws, modules=["rag", "tts", "lips"])
         assert ready["type"] == "ready"
-        assert ready["outbound"] == ["huri.token", "huri.audio.out", "lips.face"]
+        assert ready["outbound"] == ["huri.token", "huri.audio.out", "huri.lips.face"]
 
     assert set(huri.handshake["subscribe"]) == set(ready["outbound"])
 
@@ -728,7 +728,7 @@ def test_public_config_lists_modules_but_not_their_args(make_client):
         "huri.token",
         "huri.audio.out",
         "huri.motion",
-        "lips.face",
+        "huri.lips.face",
         "huri.transcript",
         "huri.question",
         "huri.emotion",

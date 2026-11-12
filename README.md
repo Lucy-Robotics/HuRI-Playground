@@ -51,7 +51,7 @@ him above the conversation; with `mov` (EMAGE) he gestures with the speech,
 without it he only idles, nodding with the voice. With `lips`
 ([huri-module-lips-sync](https://github.com/Lucy-Robotics/huri-module-lips-sync),
 on HuRI's side) his mouth follows the ARKit blend shapes it computes from the
-voice (`lips.face`), in step with it; without it, the voice's loudness. With `emo` and `eag` the
+voice (`huri.lips.face`), in step with it; without it, the voice's loudness. With `emo` and `eag` the
 page shows the emotion HuRI reads from the voice, and the visitor chooses
 whether HuRI answers in parallel with reading it (`qag`'s `mode: parallel`,
 the default: an emotion read after its question left goes with the next
