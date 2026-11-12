@@ -393,7 +393,7 @@ button:disabled {
 }
 
 .avatar[data-state="loading"]::after {
-  content: "Mouse-Man is getting ready…";
+  content: "Getting ready…";
   position: absolute;
   inset: 0;
   display: grid;
@@ -832,7 +832,8 @@ body[data-screen="chat"] #screen-chat .messages {
   body.has-avatar[data-screen="chat"] main {
     max-width: 80rem;
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    /* As wide as the conversation: his gestures need the room. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas:
       "header card"
@@ -854,7 +855,7 @@ body[data-screen="chat"] #screen-chat .messages {
   }
 
   body.has-avatar[data-screen="welcome"] main {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr);
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 2.4fr);
   }
 
   /* Next to a long form, Mouse-Man stays in view while it scrolls. */
@@ -862,7 +863,7 @@ body[data-screen="chat"] #screen-chat .messages {
     position: sticky;
     top: 16px;
     align-self: start;
-    height: min(70vh, 600px);
+    height: min(85vh, 820px);
   }
 
   /* In the conversation the card starts at the top: the title is beside it. */

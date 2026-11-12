@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from huri_playground.gateway import Settings, create_app
 from huri_playground.questionnaire import load_questionnaires
 
+from . import curated
 from .curated import modules_reply
 
 VOICE = ["vad", "stt", "tag", "qag", "rag", "tts"]
@@ -299,6 +300,19 @@ def test_question_builder_waits_for_emotion_only_when_one_is_coming(make_client)
     assert huri.handshake["modules"]["qag"]["args"]["use_emotion"] is True
     # The page shows what HuRI senses from the voice.
     assert "huri.emotion" in huri.handshake["subscribe"]
+
+
+def test_lip_sync_streams_the_face_with_the_voice(make_client, monkeypatch):
+    """huri-module-lips-sync's `lips`: the avatar's mouth follows its frames."""
+    monkeypatch.setitem(curated.CURATED, "lips", ("huri.audio.out", "huri.lips.face"))
+    client, huri = make_client()
+
+    with client.websocket_connect("/ws") as ws:
+        ready = start(ws, modules=["rag", "tts", "lips"])
+        assert ready["type"] == "ready"
+        assert ready["outbound"] == ["huri.token", "huri.audio.out", "huri.lips.face"]
+
+    assert set(huri.handshake["subscribe"]) == set(ready["outbound"])
 
 
 @pytest.mark.parametrize(
@@ -714,11 +728,13 @@ def test_public_config_lists_modules_but_not_their_args(make_client):
         "huri.token",
         "huri.audio.out",
         "huri.motion",
+        "huri.lips.face",
         "huri.transcript",
         "huri.question",
         "huri.emotion",
     ]
-    assert config["selected"] == ["rag", "tts", "mov"]
+    # `selected: all`: every module HuRI runs, in modules.yaml's order.
+    assert config["selected"] == [m["name"] for m in config["modules"]]
     assert [g["id"] for g in config["groups"]] == ["listen", "feel", "think", "speak"]
     assert [q["id"] for q in config["questionnaires"]] == ["godspeed", "rosas"]
 

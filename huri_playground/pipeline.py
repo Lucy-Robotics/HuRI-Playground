@@ -16,6 +16,9 @@ from .files import load_mapping
 
 MODULES_PATH = Path(__file__).parent / "modules.yaml"
 
+# modules.yaml's `selected: all`: every module is ticked when the page opens.
+ALL = "all"
+
 # Where a module goes when modules.yaml gives it no group.
 OTHER_GROUP = "other"
 
@@ -28,6 +31,8 @@ RENDERED: Dict[str, str] = {
     "huri.token": "json",
     "huri.audio.out": "binary",
     "huri.motion": "binary",
+    # huri-module-lips-sync: ARKit weights for the avatar's mouth.
+    "huri.lips.face": "binary",
     "huri.transcript": "json",
     "huri.question": "json",
     "huri.emotion": "json",
@@ -128,12 +133,14 @@ class Catalog:
         self,
         modules: Iterable[ModuleInfo],
         inbound: Mapping[str, InboundRule],
-        selected: Iterable[str],
+        selected: Iterable[str] | str,
         groups: Mapping[str, str] | None = None,
     ):
         self.modules = {m.name: m for m in modules}
         self.inbound = dict(inbound)
-        self.selected = [name for name in selected if name in self.modules]
+        # "all": every module this HuRI runs.
+        names = list(self.modules) if selected == ALL else selected
+        self.selected = [name for name in names if name in self.modules]
         self.groups = dict(groups or {})
 
     def public(self) -> Dict[str, Any]:
@@ -149,8 +156,15 @@ class Catalog:
             "selected": self.selected,
         }
 
-    def build(self, names: Any, picked: Any = None) -> Pipeline:
-        """``picked``: the visitor's option values, ``{module: {option: value}}``."""
+    def build(
+        self,
+        names: Any,
+        picked: Any = None,
+        extra: Mapping[str, Mapping[str, Any]] | None = None,
+    ) -> Pipeline:
+        """``picked``: the visitor's option values, ``{module: {option: value}}``;
+        ``extra``: args the gateway adds to the modules picked, such as the
+        avatar's body (see avatars.py)."""
         if (
             not isinstance(names, list)
             or not names
@@ -186,6 +200,7 @@ class Catalog:
                 if other in selected:
                     args.update(extra)
             args.update(options.get(m.name, {}))
+            args.update((extra or {}).get(m.name, {}))
             modules[m.name] = {"name": m.name, "args": args}
         return Pipeline(
             modules=modules, inbound=inbound, outbound=outbound, options=options
@@ -224,7 +239,7 @@ class CatalogConfig:
     """modules.yaml: how to present and configure the modules HuRI reports."""
 
     inbound: Mapping[str, InboundRule]
-    selected: List[str]
+    selected: List[str] | str  # or ALL
     entries: Mapping[str, Mapping[str, Any]]
     groups: Mapping[str, str] = field(default_factory=dict)
 
@@ -286,9 +301,12 @@ def load_catalog_config(path: Path = MODULES_PATH) -> CatalogConfig:
             for other in [spec.get("needs"), *spec.get("ticks", [])]:
                 if other is not None and other not in entries:
                     raise ValueError(f"{path}: {name}.{option} names unknown {other!r}")
+    selected = raw.get("selected") or []
+    if selected != ALL and not isinstance(selected, list):
+        raise ValueError(f"{path}: selected must be a list of modules or {ALL!r}")
     return CatalogConfig(
         inbound={topic: InboundRule(**rule) for topic, rule in raw["inbound"].items()},
-        selected=list(raw.get("selected") or []),
+        selected=selected,
         entries=entries,
         groups=groups,
     )
