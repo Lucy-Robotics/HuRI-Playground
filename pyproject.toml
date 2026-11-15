@@ -45,7 +45,7 @@ include = ["huri_playground*"]
 
 [tool.setuptools.package-data]
 # The page, its scripts and styles, the vendored three.js and the yaml files
-# the gateway reads. The Mouse-Man model (static/avatar/) is not packaged.
+# the gateway reads. The avatar models (static/avatar/) are not packaged.
 huri_playground = [
   "*.yaml",
   "questionnaires/*.yaml",

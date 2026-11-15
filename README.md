@@ -3,7 +3,7 @@
 A public web page to talk with [HuRI](https://github.com/Lucy-Robotics/huri-core#huri-ecosystem),
 then rate it: visitors pick the modules HuRI runs for them, have a short
 conversation (typed, or spoken into the microphone), hear HuRI's voice and
-watch Mouse-Man gesture, and answer the Godspeed (5-point) and RoSAS (7-point)
+watch its avatar talk and gesture, and answer the Godspeed (5-point) and RoSAS (7-point)
 questionnaires. It installs as the `huri-playground` package and command.
 
 HuRI-Playground is a **use case** of HuRI, not a part of it, like
@@ -46,9 +46,12 @@ package. The browser-side protocol is documented at the top of
 [huri_playground/gateway.py](huri_playground/gateway.py).
 
 With `vad` the page offers a microphone (it needs `https` or `localhost`).
-With `tts` it plays HuRI's voice and, if the Mouse-Man model is present, shows
+With `tts` it plays HuRI's voice and, if an avatar model is present, shows
 him above the conversation; with `mov` (EMAGE) he gestures with the speech,
-without it he only idles, nodding with the voice. With `emo` and `eag` the
+without it he only idles, nodding with the voice. With `lips`
+([huri-module-lips-sync](https://github.com/Lucy-Robotics/huri-module-lips-sync),
+on HuRI's side) his mouth follows the ARKit blend shapes it computes from the
+voice (`huri.lips.face`), in step with it; without it, the voice's loudness. With `emo` and `eag` the
 page shows the emotion HuRI reads from the voice, and the visitor chooses
 whether HuRI answers in parallel with reading it (`qag`'s `mode: parallel`,
 the default: an emotion read after its question left goes with the next
@@ -128,14 +131,56 @@ and the `options` they set (`qag`'s mode), but not what the visitor wrote.
 Questionnaire items are in
 [huri_playground/questionnaires/](huri_playground/questionnaires/).
 
-### The Mouse-Man model
+### The avatar models
 
-The 3D model (30 MB) is not committed: copy `frontend/public/model.fbx` from
-[HuRI_website_demo](https://github.com/Lucy-Robotics/HuRI_website_demo) (Git
-LFS) to `huri_playground/static/avatar/model.fbx`. Without it the page is text
-only. That model has no mouth rig, so his mouth does not move. EMAGE also runs
-on AMD GPUs with the ROCm PyTorch build (measured on an RX 7700S: 0.07 s per
-3 s of speech), although huri-modules' installer turns `mov` off on AMD.
+The 3D models are not committed. Without one the page is text only; with
+several, the page shows the first of these it finds, and `?avatar=man` or
+`?avatar=mouse` picks one. They are listed in
+[huri_playground/avatars.yaml](huri_playground/avatars.yaml), with how each is
+framed and moves:
+
+- **man** (the default): a man from the
+  [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox)
+  library (MIT), with ARKit and viseme blend shapes, so his mouth opens with
+  the voice and he blinks. `scripts/fetch_avatar.sh` downloads him (6 MB) to
+  `huri_playground/static/avatar/man/` and converts his textures to WebP; it
+  needs `curl` and ImageMagick. Another Rocketbox avatar can be given, e.g.
+  `scripts/fetch_avatar.sh Male_Adult_03`.
+- **mouse**: Mouse-Man, the character of the website demo. Copy
+  `frontend/public/model.fbx` from
+  [HuRI_website_demo](https://github.com/Lucy-Robotics/HuRI_website_demo) (Git
+  LFS, 30 MB) to `huri_playground/static/avatar/model.fbx`. That model has no
+  mouth rig, so his mouth does not move.
+
+Everything about an avatar's size is computed from its model, so another
+model needs no measurements:
+
+- **its body**: the page measures it in the T-pose (shoulders, arm and hand
+  lengths from the bones; chin, chest, belly and hips from the skin, scaled to
+  its `height`) and sends it with the session. The gateway checks it and
+  passes it to the modules listed in `body_args`: `think`
+  (huri-module-think) solves its thinking poses on it, so a hand at the chin
+  reaches this avatar's chin. A measurement that is off can be overridden in
+  its `body`. That needs a huri-module-think that takes a `body` arg: with
+  an older one, take `think` out of `body_args`;
+- **the camera** (`camera`): head and shoulders, chest, waist, knees or full
+  body, from the bones, without and with gestures;
+- **the arms at rest** hang just clear of its belly and hips;
+- **the legs** are solved (two-bone IK) so the feet stay planted while the
+  hips shift and turn with EMAGE's weight shifts (`pelvis`), the knees soft;
+- **the eyes** (a model with eye bones) hold yours, with small saccades, and
+  follow the head when it looks away;
+- **the motion** (`motion`): the idle life and HuRI's gestures each have a
+  gain, and while it gestures the sustained part of the chest's lean, of the
+  head's turn away from you and of the arms' spread is taken out (`upright`,
+  `gaze`, `arms`): EMAGE's speakers lean forward, look down and hold their
+  arms out. Measured on the man in a live session, his head was 32 degrees
+  down while he spoke, and his hands went up and down 23 times as much as at
+  rest; with the shipped settings, 1 degree and 4 times.
+
+EMAGE also runs on AMD GPUs with the ROCm PyTorch build (measured on an
+RX 7700S: 0.07 s per 3 s of speech), although huri-modules' installer turns
+`mov` off on AMD.
 
 ### Comparing QAG's modes
 

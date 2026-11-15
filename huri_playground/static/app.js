@@ -104,6 +104,9 @@ function start() {
         modules: picker.chosen(),
         options: picker.chosenOptions(),
         access_code: $("access-code").value,
+        // The avatar on screen and its body, measured by avatar.js: modules
+        // such as huri-module-think fit their motion to it.
+        ...(window.huriAvatarBody || {}),
       }),
     );
   });
@@ -128,6 +131,7 @@ const GETS = {
   "huri.token": "writes back",
   "huri.audio.out": "speaks",
   "huri.motion": "gestures",
+  "huri.lips.face": "moves its lips with the voice",
   "huri.transcript": "shows what it hears",
   "huri.question": "shows what it understood",
   "huri.emotion": "shows the emotion it senses",
@@ -599,6 +603,12 @@ function onBinary(data) {
     // Parsed by avatar.js: [f64 BE pts][u32 BE fps][u32 BE frames][float32...]
     window.dispatchEvent(
       new CustomEvent("huri-motion", { detail: data.slice(start) }),
+    );
+  } else if (topic === "huri.lips.face") {
+    // huri-module-lips-sync, parsed by avatar.js:
+    // [f64 BE pts][u32 BE fps][u32 BE frames][float32 LE frames x 52 ARKit]
+    window.dispatchEvent(
+      new CustomEvent("huri-face", { detail: data.slice(start) }),
     );
   }
 }
