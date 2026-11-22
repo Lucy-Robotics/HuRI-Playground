@@ -306,9 +306,13 @@ async function main() {
   // voice's loudness.
   let lipSync = false;
   if (window.huriAvatar) Object.assign(window.huriAvatar, { gestures, lips });
-  window.addEventListener("huri-session", (e) => {
+  function clearTracks() {
     gestures.clear();
     lips.clear();
+  }
+  window.addEventListener("huri-interrupt", clearTracks);
+  window.addEventListener("huri-session", (e) => {
+    clearTracks();
     wideTarget = e.detail.outbound.includes("huri.motion") ? 1 : 0;
     lipSync = e.detail.outbound.includes("huri.lips.face");
   });
@@ -317,6 +321,8 @@ async function main() {
     if (speaker) gestures.add(e.detail, speaker);
   });
   window.addEventListener("huri-face", (e) => {
+    const speaker = window.huriSpeaker;
+    if (speaker && !speaker.admitsMedia()) return;
     lipSync = true;
     lips.add(e.detail);
   });
@@ -568,6 +574,7 @@ class GestureTrack {
 
     const face = floats.subarray(n * POSE_DIM, n * (POSE_DIM + EXPR_DIM));
     const thinking = face.every((x) => x === 0);
+    if (!thinking && !speaker.admitsMedia()) return;
     if (thinking && (pts === 0 || this.thinkBase === null)) {
       this.thinkBase = speaker.ctx.currentTime + 0.05 - pts; // a new episode
     }

@@ -23,10 +23,12 @@ visitor, so the gateway owns what a public page needs:
 - **the pipeline**: the browser ticks module names among those HuRI reports on
   `GET /modules`, so the list follows whatever this HuRI runs. Ticking a module
   ticks what feeds it (`tts` brings `rag`, `stt` brings `vad`), and the page
-  says what the pipeline does before it starts. The browser sends module names
+  says what the pipeline does before it starts. The browser sends row names
   only: labels, args and the few options a visitor may set are in
   [huri_playground/modules.yaml](huri_playground/modules.yaml), and the
-  gateway refuses a pipeline in which a module's input can never arrive;
+  gateway refuses a pipeline in which a module's input can never arrive. A
+  tickbox is a row: one module, or a bundle of modules the visitor ticks as one
+  (see [modules.yaml](#modulesyaml-rows-swaps-and-interrupts));
 - **the cost**: a cap on concurrent sessions and on session length;
 - **abuse**: an optional shared access code, a topic allow-list, per-topic rate
   and size limits;
@@ -93,6 +95,13 @@ check is skipped. `python scripts/check_modules_yaml.py <registry.toml>` checks
 the module names of `modules.yaml` against huri-modules' registry (CI does,
 at `HURI_MODULES_REF`).
 
+The page's own logic (the picker rules, the visitor id, the answer cut, the
+emotion tags, the audio scheduling) is plain ES modules in
+`huri_playground/static/`, tested with node's built-in runner and no npm
+package: `tests/test_page_logic.py` runs `node --check` on every script and
+`node --test` on `tests/js/*.test.mjs`. It needs node >= 20.19; without it the
+two node tests are skipped, and under `CI` they fail instead.
+
 ## Usage
 
 Start a HuRI server first, then:
@@ -127,9 +136,74 @@ Each line of `responses.jsonl` holds one visitor's answers, the per-dimension
 scores (Godspeed: anthropomorphism, animacy, likeability, perceived
 intelligence, perceived safety; RoSAS: warmth, competence, discomfort), the
 conversation length, number of questions, the `modules` the visitor picked
-and the `options` they set (`qag`'s mode), but not what the visitor wrote.
+and the `options` they set (`qag`'s mode), and the optional comment the
+visitor types in the questionnaire, but not the conversation text.
 Questionnaire items are in
 [huri_playground/questionnaires/](huri_playground/questionnaires/).
+
+### The browser protocol
+
+The full list is at the top of
+[huri_playground/gateway.py](huri_playground/gateway.py). What a client needs:
+
+- `GET /api/config` lists `modules`, each one a row
+  `{name, label, description, group, inputs, outputs, options}`, plus `groups`,
+  `inbound`, `rendered`, `selected` (row ids), `max_seconds`,
+  `access_code_required` and `huri_available`. `inputs` and `outputs` are lists
+  of topics, without duplicates; `outputs` is empty for a row that produces
+  nothing.
+- `start`: `{"type": "start", "modules": [row ids], "options", "access_code",
+  "avatar", "body", "visitor"}`. `visitor` is the visitor's id, 32 lowercase
+  hexadecimal characters kept in the browser's local storage. The page sends
+  it only when the visitor ticked "Let HuRI remember me"; it is also left out
+  when the browser has no storage, and the gateway then uses a one-off id.
+  The gateway ignores `args` and `user_id`.
+- `ready` carries `modules`, the row ids in the order the browser sent them,
+  and `"interrupts": true` only when the open session carries an interruption
+  policy. With a 0.4 server there is no policy: the gateway opens the session
+  without an `event_policy`, `interrupts` is `false`, and it logs one warning
+  each time the server's huri-core version changes. When a 0.5 server refuses
+  a handshake that has interruption rules, the gateway warns and retries once
+  without them, both attempts under the same connection deadline.
+- `error` with the reason `already_open`: a second concurrent `start` with the
+  same visitor id is refused while the first conversation is open. The first
+  keeps going. A start without a valid visitor id never clashes.
+- In the page, a new question while HuRI is answering raises the
+  `huri-interrupt` event on `window`, which stops the voice and the avatar's
+  speech at once; late audio, lip and gesture chunks of the cut answer are
+  dropped.
+
+At DEBUG huri-core's `huri.client` logger logs relayed events by topic, type
+and size only (`sent 'huri.question': RawJson(len:30)`), never their text. The
+gateway's own log lines carry no visitor ids or question text. The
+`websockets` library's own loggers print frame contents at DEBUG, so keep them
+at INFO. HuRI's own server logs are outside the gateway's control.
+
+### modules.yaml: rows, swaps and interrupts
+
+Besides `inbound`, `selected`, `groups` and `modules` (see the header of
+[huri_playground/modules.yaml](huri_playground/modules.yaml)):
+
+- `rows` define a tickbox for several modules: `members` (the modules, in
+  order), `required` (the row is offered only when HuRI runs all of these, and
+  at least one member with an output), plus `group`, `label` and
+  `description`. `thinking` and `huri_emotion` are rows. A module that is in no
+  row is a row of its own.
+- `without_visitor` maps a module to the args added when the start carries no
+  valid visitor id, that is, when the visitor did not ask HuRI to remember
+  them. Shipped: `rag` with `memory: "short,working"`, so nothing reaches
+  long-term memory. It needs huri-modules >= 0.2.0.
+- `swaps` (on a module or a row) name a module that is replaced by another when
+  the row is ticked too: ticking Lip sync (`lips`) swaps `tts` for
+  `tts_phonemes`. A swap target is never a row of its own.
+- `interrupts` maps a topic to the topics it cuts short, for huri-core >= 0.5
+  (`huri.question` cuts `huri.token`, `huri.audio.out`, `huri.motion`,
+  `huri.lips.face` and `huri.emotion.out`). A session keeps only the
+  topics it has, and it opens without a policy when none is left or when HuRI
+  is a 0.4.
+
+No module name appears in the Python code: a new module or row is an entry in
+the yaml.
 
 ### The avatar models
 
@@ -192,6 +266,36 @@ time went. `python scripts/compare_qag_modes.py --help`; it needs `numpy`,
 `websockets`, `webrtcvad` and, to read a sentence aloud instead of replaying a
 recording, Piper (`piper-tts`) and a voice in `HURI_PIPER_VOICE`.
 
+## Privacy
+
+- **Ratings:** `playground_data/responses.jsonl` (under `PLAYGROUND_DATA_DIR`)
+  keeps one line per rated conversation with ten fixed keys: no visitor id and
+  no HuRI user id. The only free text is the optional comment the visitor
+  leaves at the end, stored as written; the page asks visitors not to put
+  personal details in it. Nothing else a visitor wrote or said is stored by
+  the gateway. The ratings are stored anonymously.
+- **Memory** is opt-in. The visitor ticks "Let HuRI remember me"; unticked by
+  default.
+  - Ticked: the page creates a random id in the browser (localStorage
+    `huri-playground-visitor`) only when the conversation starts, and sends it.
+    HuRI gets `playground-` plus a hash of it as the user id, and its `rag`
+    module saves long-term memory on HuRI's server under that id, so the next
+    conversation here can pick up where this one ended. "Forget me" removes the
+    browser's id: this browser starts fresh, but nothing is deleted on HuRI's
+    side. The memories stay in HuRI's store until the operator removes them.
+  - Unticked, storage unavailable, or a malformed id: the gateway uses a
+    one-off id, nothing links conversations, and it adds the `without_visitor`
+    args of `modules.yaml`. The shipped value runs `rag` with short and working
+    memory only, so nothing is saved as long-term memory.
+- **Microphone:** if the visitor turns the microphone on, the voice is sent to
+  HuRI to be understood. What it understands is kept as long-term memory only
+  when the visitor ticked "Let HuRI remember me".
+- **Logs:** see the paragraph on DEBUG logging under
+  [The browser protocol](#the-browser-protocol).
+- **Contact:** the operator of a deployment is responsible for it and should
+  publish a contact for visitors. For this software, open an issue at the
+  repository: https://github.com/Lucy-Robotics/HuRI-Playground.
+
 ## Versions and compatibility
 
 huri-playground follows semver on its command line, its environment variables
@@ -200,11 +304,11 @@ and the keys of `modules.yaml`. Releases are git tags `X.Y.Z` (no `v`) on
 
 | huri-playground | huri-core | huri-modules (the server) |
 |---|---|---|
-| 0.1.x | 0.4.x (`>=0.4,<0.5`) | any 0.1.x set serves the page; showing the emotion (`huri.emotion`) and the `emotion_earlier` flag of `huri.question` need its huri-events >= 0.2 |
+| 0.1.x | 0.5.x (`>=0.5,<0.6`) | a set of huri-modules >= 0.2.0 serves the page (its `rag` has the `memory` argument the gateway sets for a start without a remembered visitor; the `rag` of 0.1.x has none and the server would refuse such a start); showing the emotion (`huri.emotion`) and the `emotion_earlier` flag of `huri.question` need its huri-events >= 0.2. A 0.5 server lets a new question cut the answer short (interruption). A 0.4 server still serves the page, but without interruption: the gateway starts the session without an `event_policy`, `ready.interrupts` is `false`, and a new question waits for the answer in progress |
 
 CI tests against huri-core at the ref set by the `HURI_CORE_REF` variable of
 [ci.yml](.github/workflows/ci.yml), the release tag inside the
-`huri-core[client]` range (`0.4.0`), and checks the module names of
+`huri-core[client]` range (`0.5.0`), and checks the module names of
 `modules.yaml` against huri-modules' `registry.toml` at `HURI_MODULES_REF`
 (`dev`).
 
