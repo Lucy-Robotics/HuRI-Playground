@@ -3,6 +3,8 @@
 import importlib.util
 from pathlib import Path
 
+from .curated import CURATED
+
 ROOT = Path(__file__).resolve().parents[1]
 
 spec = importlib.util.spec_from_file_location(
@@ -32,10 +34,7 @@ def write(tmp_path, name, text):
 
 
 def test_the_shipped_modules_yaml_passes_against_a_registry_listing_them(tmp_path):
-    names = "".join(
-        f'\n[[module]]\nname = "{n}"\npackage = "p"\n'
-        for n in ["vad", "stt", "tag", "emo", "eag", "qag", "rag", "tts", "mov"]
-    )
+    names = "".join(f'\n[[module]]\nname = "{n}"\npackage = "p"\n' for n in CURATED)
     registry = write(tmp_path, "registry.toml", "schema = 2\n" + names)
     assert check.main([str(registry)]) == 0
 

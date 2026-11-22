@@ -22,12 +22,17 @@ bytes) and framed again for the browser, unchanged.
 Browser <-> gateway protocol (JSON text frames unless noted):
 
   -> {"type": "start", "modules": ["rag", "tts"], "options": {"qag": {...}},
-      "access_code": "..."}
+      "access_code": "...", "visitor": "<32 lowercase hex>"?}
+     visitor: the browser's own id. HuRI gets a hash of it as user_id, so it
+     remembers the visitor; without a valid one, a one-off user_id.
   <- {"type": "ready", "session_id", "max_seconds", "modules", "options",
-      "inbound", "outbound"}
+      "inbound", "outbound", "interrupts"}
+     modules: the rows picked; interrupts: true when a new question cuts
+     HuRI's answer short (huri-core >= 0.5)
   <- {"type": "clock", "max_seconds"}   the visitor's first words: the
                                         session's time starts now
-     | {"type": "error", "reason", "detail"?}   then close
+     | {"type": "error", "reason", "detail"?}   then close; reason
+       "already_open" while the same visitor talks in another tab
   -> {"topic": "huri.question", "data": {"text": "..."}}   relayed to HuRI
   -> binary [u16 topic_len][topic][payload]                relayed to HuRI
   <- HuRI events, text or binary, relayed unchanged
@@ -58,8 +63,10 @@ from huri_core.core.events import BytesEvent, EventData
 from starlette.websockets import WebSocketState
 
 from .avatars import AvatarsConfig, InvalidBody, load_avatars_config
-from .limits import RateLimiter, SessionSlots
+from .interrupts import takes_interrupts
+from .limits import RateLimiter, SessionSlots, VisitorLocks
 from .pipeline import (
+    BINARY_FRAME,
     RENDERED,
     Catalog,
     CatalogConfig,
@@ -69,6 +76,7 @@ from .pipeline import (
 )
 from .questionnaire import InvalidAnswers, Questionnaire, load_questionnaires
 from .store import AlreadyAnswered, ResponseStore, SessionRecord, UnknownSession
+from .visitor_identity import huri_user_id, is_visitor_id
 
 logger = logging.getLogger("playground")
 
@@ -82,6 +90,8 @@ CATALOG_TTL_S = 10.0
 MAX_COMMENT_CHARS = 2000
 
 QUESTION_TOPIC = "huri.question"
+
+NO_CORE_VERSION_SEEN = object()
 
 
 @dataclass
@@ -97,6 +107,18 @@ class RawJson(EventData[Mapping[str, Any]]):
 
     def to_wire(self) -> Mapping[str, Any]:
         return self.data
+
+    def summarize(self) -> str:
+        cls = type(self).__name__
+        return f"{cls}(len:{len(json.dumps(self.data))})"
+
+
+@dataclass(frozen=True)
+class VisitorSession:
+    pipeline: Pipeline
+    rows: List[str]
+    user_id: str
+    started: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 @dataclass
@@ -181,6 +203,8 @@ class Gateway:
         self.questionnaires = questionnaires
         self.store = store
         self.slots = SessionSlots(settings.max_sessions)
+        self.visitors = VisitorLocks()
+        self._core_version: Any = NO_CORE_VERSION_SEEN
         self.fetch = fetch
         self.clock = clock
         self._catalog: Tuple[float, Catalog] | None = None
@@ -198,13 +222,25 @@ class Gateway:
         try:
             reply = await self.fetch(self.settings.huri_modules_url)
             catalog = self.catalog_config.catalog(
-                reply["details"], self.settings.modules
+                reply["details"], self.settings.modules, reply.get("huri_core")
             )
         except Exception as e:  # noqa: BLE001 - down, old HuRI, bad reply
             logger.warning("playground: cannot list HuRI's modules: %r", e)
             return None
         self._catalog = (now, catalog)
+        self._note_core_version(reply.get("huri_core"))
         return catalog
+
+    def _note_core_version(self, core_version: Any) -> None:
+        if core_version == self._core_version:
+            return
+        self._core_version = core_version
+        if not takes_interrupts(core_version):
+            logger.warning(
+                "playground: HuRI runs huri-core %r, which takes no interrupt "
+                "rules: interruption is off",
+                core_version,
+            )
 
     # --- HTTP -------------------------------------------------------------
 
@@ -255,36 +291,53 @@ class Gateway:
 
     async def run_session(self, ws: WebSocket) -> None:
         await ws.accept()
+        start = await _read_start(ws)
+        if start is None:
+            return
+        pipeline = await self._pipeline_for(ws, start)
+        if pipeline is None:
+            return
+        rows = list(dict.fromkeys(start["modules"]))
+        session = VisitorSession(pipeline, rows, huri_user_id(start.get("visitor")))
+        if not self.visitors.try_acquire(session.user_id):
+            await _fail(ws, "already_open")
+            return
         try:
-            start = await asyncio.wait_for(ws.receive_json(), START_TIMEOUT_S)
-        except Exception:  # noqa: BLE001 - timeout, bad JSON or early disconnect
-            await _close(ws)
-            return
+            await self._run_in_slot(ws, session)
+        finally:
+            self.visitors.release(session.user_id)
 
-        if not isinstance(start, dict) or start.get("type") != "start":
-            await _fail(ws, "expected_start")
-            return
+    async def _pipeline_for(
+        self, ws: WebSocket, start: Dict[str, Any]
+    ) -> Pipeline | None:
         if not self._access_ok(start.get("access_code")):
             await _fail(ws, "bad_access_code")
-            return
+            return None
         catalog = await self.catalog()
         if catalog is None:
             await _fail(ws, "huri_unavailable")
-            return
+            return None
         try:
-            # The avatar's body (measured by the page) for the modules that
-            # fit their motion to it.
-            extra = self.avatars.module_args(start.get("avatar"), start.get("body"))
-            pipeline = catalog.build(start.get("modules"), start.get("options"), extra)
+            extra = self._module_args(start)
+            return catalog.build(start.get("modules"), start.get("options"), extra)
         except (InvalidPipeline, InvalidBody) as e:
             await _fail(ws, "invalid_pipeline", str(e))
-            return
+            return None
+
+    def _module_args(self, start: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        # The avatar's body (measured by the page) for the modules that
+        # fit their motion to it.
+        avatar = self.avatars.module_args(start.get("avatar"), start.get("body"))
+        if is_visitor_id(start.get("visitor")):
+            return avatar
+        return _merged_args(self.catalog_config.without_visitor, avatar)
+
+    async def _run_in_slot(self, ws: WebSocket, session: VisitorSession) -> None:
         if not self.slots.try_acquire():
             await _fail(ws, "busy")
             return
-
         try:
-            await self._run_pipeline(ws, pipeline)
+            await self._run_pipeline(ws, session)
         finally:
             self.slots.release()
 
@@ -296,49 +349,20 @@ class Gateway:
             given.encode(), expected.encode()
         )
 
-    async def _run_pipeline(self, ws: WebSocket, pipeline: Pipeline) -> None:
+    async def _run_pipeline(self, ws: WebSocket, session: VisitorSession) -> None:
         session_id = uuid.uuid4().hex
-        user_id = f"playground-{session_id}"
-        names = sorted(pipeline.modules)
-
-        started = asyncio.Event()  # the visitor's first words
-        huri = self._client(ws, pipeline, user_id, started)
+        huri = await self._open_huri(ws, session)
+        if huri is None:
+            return
         try:
-            try:
-                await asyncio.wait_for(huri.connect(), HURI_INIT_TIMEOUT_S)
-            except HuRISessionError as e:
-                logger.error(
-                    "playground: HuRI rejected %s: %s (server runs %s)",
-                    names,
-                    e.error,
-                    e.server_modules,
-                )
-                await _fail(ws, "huri_rejected")
-                return
-            except (OSError, asyncio.TimeoutError, websockets.WebSocketException) as e:
-                logger.warning("playground: HuRI unreachable: %r", e)
-                await _fail(ws, "huri_unavailable")
-                return
-
-            record = self.store.open_session(session_id, names, pipeline.options)
-            logger.info("playground: session %s started %s", session_id, names)
-            await ws.send_json(
-                {
-                    "type": "ready",
-                    "session_id": session_id,
-                    "max_seconds": self.settings.session_seconds,
-                    "modules": names,
-                    "options": pipeline.options,
-                    "inbound": {
-                        topic: {"max_chars": rule.max_chars}
-                        for topic, rule in pipeline.inbound.items()
-                    },
-                    # What HuRI will stream: with huri.motion, the avatar gestures.
-                    "outbound": pipeline.outbound,
-                }
+            record = self.store.open_session(
+                session_id, session.rows, session.pipeline.options
             )
-
-            reason = await self._relay(ws, huri, pipeline, record, started)
+            logger.info("playground: session %s started %s", session_id, session.rows)
+            await ws.send_json(self._ready_message(session_id, session, huri))
+            reason = await self._relay(
+                ws, huri, session.pipeline, record, session.started
+            )
             self.store.close_session(session_id, reason)
             logger.info("playground: session %s ended (%s)", session_id, reason)
         finally:
@@ -351,21 +375,77 @@ class Gateway:
             await _send(ws, {"type": "ended", "reason": reason})
             await _close(ws)
 
+    async def _open_huri(
+        self, ws: WebSocket, session: VisitorSession
+    ) -> HuRIClient | None:
+        try:
+            return await asyncio.wait_for(
+                self._connect_huri(ws, session), HURI_INIT_TIMEOUT_S
+            )
+        except HuRISessionError as e:
+            logger.error(
+                "playground: HuRI rejected %s: %s (server runs %s)",
+                sorted(session.pipeline.modules),
+                e.error,
+                e.server_modules,
+            )
+            await _fail(ws, "huri_rejected")
+        except (OSError, asyncio.TimeoutError, websockets.WebSocketException) as e:
+            logger.warning("playground: HuRI unreachable: %r", e)
+            await _fail(ws, "huri_unavailable")
+        return None
+
+    async def _connect_huri(self, ws: WebSocket, session: VisitorSession) -> HuRIClient:
+        try:
+            return await self._client(ws, session, session.pipeline).connect()
+        except HuRISessionError as e:
+            if not session.pipeline.interrupts:
+                raise
+            logger.warning(
+                "playground: HuRI rejected the session (%s); retrying once "
+                "without interrupt rules",
+                e.error,
+            )
+        plain = session.pipeline.without_interrupts()
+        return await self._client(ws, session, plain).connect()
+
+    def _ready_message(
+        self, session_id: str, session: VisitorSession, huri: HuRIClient
+    ) -> Dict[str, Any]:
+        pipeline = session.pipeline
+        return {
+            "type": "ready",
+            "session_id": session_id,
+            "max_seconds": self.settings.session_seconds,
+            "modules": session.rows,
+            "options": pipeline.options,
+            "inbound": {
+                topic: {"max_chars": rule.max_chars}
+                for topic, rule in pipeline.inbound.items()
+            },
+            # What HuRI will stream: with huri.motion, the avatar gestures.
+            "outbound": pipeline.outbound,
+            "interrupts": bool(huri.event_policy),
+        }
+
     def _client(
-        self, ws: WebSocket, pipeline: Pipeline, user_id: str, started: asyncio.Event
+        self, ws: WebSocket, session: VisitorSession, pipeline: Pipeline
     ) -> HuRIClient:
         """The SDK client for this pipeline, every subscribed topic forwarded
         to the browser as it came, framed again by the SDK. HuRI only answers
         what it heard: its first event means the visitor started talking."""
-        handshake = pipeline.handshake(user_id)
+        handshake = pipeline.handshake(session.user_id)
         client = HuRIClient(
             self.settings.huri_url,
             modules=handshake["modules"],
             sends=handshake["send"],
-            user_id=user_id,
+            user_id=session.user_id,
+            event_policy=handshake.get("event_policy"),
         )
         for topic in handshake["subscribe"]:
-            client.on(topic, _event_class(topic), _forwarder(ws, topic, started))
+            client.on(
+                topic, _event_class(topic), _forwarder(ws, topic, session.started)
+            )
         return client
 
     async def _relay(
@@ -477,9 +557,30 @@ class Gateway:
                     started.set()
 
 
+def _merged_args(
+    first: Mapping[str, Mapping[str, Any]], then: Mapping[str, Mapping[str, Any]]
+) -> Dict[str, Dict[str, Any]]:
+    return {
+        module: {**first.get(module, {}), **then.get(module, {})}
+        for module in {*first, *then}
+    }
+
+
+async def _read_start(ws: WebSocket) -> Dict[str, Any] | None:
+    try:
+        start = await asyncio.wait_for(ws.receive_json(), START_TIMEOUT_S)
+    except Exception:  # noqa: BLE001 - timeout, bad JSON or early disconnect
+        await _close(ws)
+        return None
+    if not isinstance(start, dict) or start.get("type") != "start":
+        await _fail(ws, "expected_start")
+        return None
+    return start
+
+
 def _event_class(topic: str) -> type:
     """How a subscribed topic is carried: bytes as they are, JSON as it is."""
-    return BytesEvent if RENDERED.get(topic) == "binary" else RawJson
+    return BytesEvent if RENDERED.get(topic) == BINARY_FRAME else RawJson
 
 
 def _forwarder(

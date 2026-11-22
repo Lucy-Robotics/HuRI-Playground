@@ -39,8 +39,10 @@ def unknown_modules(config: Path, known: Set[str]) -> List[str]:
     selected = raw.get("selected") or []
     selected = [] if selected == "all" else selected
     named = [f"modules.{name}" for name in raw.get("modules") or {}]
-    named += [f"selected[{i}]" for i, _ in enumerate(selected)]
-    values = list(raw.get("modules") or {}) + list(selected)
+    rows = raw.get("rows") or {}
+    picked = [(i, name) for i, name in enumerate(selected) if name not in rows]
+    named += [f"selected[{i}]" for i, _ in picked]
+    values = list(raw.get("modules") or {}) + [name for _, name in picked]
     return [
         f"{config.name}: {where} = {name!r}"
         for where, name in zip(named, values)

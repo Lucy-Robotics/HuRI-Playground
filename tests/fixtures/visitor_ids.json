@@ -1,0 +1,20 @@
+{
+  "pattern": "^[0-9a-f]{32}$",
+  "valid": [
+    "00000000000000000000000000000000",
+    "0123456789abcdef0123456789abcdef",
+    "ffffffffffffffffffffffffffffffff"
+  ],
+  "invalid": [
+    {"value": null, "why": "not a string"},
+    {"value": 123, "why": "a number"},
+    {"value": "", "why": "empty"},
+    {"value": "../x", "why": "path-like"},
+    {"value": "0123456789abcdef0123456789abcde", "why": "31 hex characters"},
+    {"value": "0123456789abcdef0123456789abcdef0", "why": "33 hex characters"},
+    {"value": "0123456789ABCDEF0123456789ABCDEF", "why": "uppercase"},
+    {"value": "0123456789abcdef0123456789abcdef\n", "why": "valid id plus a newline"},
+    {"value": "٠١٢٣٤٥٦٧٨٩٠١٢٣٤٥٦٧٨٩٠١٢٣٤٥٦٧٨٩٠١", "why": "Arabic-Indic digits"},
+    {"value": "playground-0123456789abcdef", "why": "a HuRI CLI style user id"}
+  ]
+}

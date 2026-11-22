@@ -1,0 +1,168 @@
+{
+  "modules": [
+    {
+      "name": "vad",
+      "label": "Voice detection",
+      "group": "listen",
+      "inputs": [
+        "huri.audio.in"
+      ],
+      "outputs": [
+        "huri.voice"
+      ]
+    },
+    {
+      "name": "stt",
+      "label": "Speech to text",
+      "group": "listen",
+      "inputs": [
+        "huri.voice"
+      ],
+      "outputs": [
+        "huri.transcript"
+      ]
+    },
+    {
+      "name": "tag",
+      "label": "Sentence builder",
+      "group": "listen",
+      "inputs": [
+        "huri.transcript"
+      ],
+      "outputs": [
+        "huri.partial_question"
+      ]
+    },
+    {
+      "name": "emo",
+      "label": "Emotion analysis",
+      "group": "feel",
+      "inputs": [
+        "huri.voice"
+      ],
+      "outputs": [
+        "huri.emotion"
+      ]
+    },
+    {
+      "name": "eag",
+      "label": "Emotion summary",
+      "group": "feel",
+      "inputs": [
+        "huri.emotion"
+      ],
+      "outputs": [
+        "huri.partial_question"
+      ]
+    },
+    {
+      "name": "qag",
+      "label": "Question builder",
+      "group": "think",
+      "inputs": [
+        "huri.partial_question"
+      ],
+      "outputs": [
+        "huri.question"
+      ]
+    },
+    {
+      "name": "rag",
+      "label": "Conversation",
+      "group": "think",
+      "inputs": [
+        "huri.question"
+      ],
+      "outputs": [
+        "huri.token"
+      ]
+    },
+    {
+      "name": "tts",
+      "label": "Voice",
+      "group": "speak",
+      "inputs": [
+        "huri.token"
+      ],
+      "outputs": [
+        "huri.audio.out"
+      ]
+    },
+    {
+      "name": "lips",
+      "label": "Lip sync",
+      "group": "speak",
+      "inputs": [
+        "huri.audio.out"
+      ],
+      "outputs": [
+        "huri.lips.face"
+      ]
+    },
+    {
+      "name": "mov",
+      "label": "Gestures",
+      "group": "speak",
+      "inputs": [
+        "huri.audio.out"
+      ],
+      "outputs": [
+        "huri.motion"
+      ]
+    },
+    {
+      "name": "thinking",
+      "label": "Thinking",
+      "group": "speak",
+      "inputs": [
+        "huri.question",
+        "huri.token",
+        "huri.audio.out"
+      ],
+      "outputs": [
+        "huri.motion",
+        "huri.audio.out"
+      ]
+    },
+    {
+      "name": "huri_emotion",
+      "label": "HuRI's emotion",
+      "group": "speak",
+      "inputs": [
+        "huri.question",
+        "huri.token"
+      ],
+      "outputs": [
+        "huri.emotion.out"
+      ]
+    }
+  ],
+  "selected": [
+    "vad",
+    "stt",
+    "tag",
+    "emo",
+    "eag",
+    "qag",
+    "rag",
+    "tts",
+    "lips",
+    "mov",
+    "thinking",
+    "huri_emotion"
+  ],
+  "inbound": [
+    "huri.question",
+    "huri.audio.in"
+  ],
+  "rendered": [
+    "huri.token",
+    "huri.audio.out",
+    "huri.motion",
+    "huri.lips.face",
+    "huri.transcript",
+    "huri.question",
+    "huri.emotion",
+    "huri.emotion.out"
+  ]
+}
