@@ -11,8 +11,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: ["**"]
   pull_request:
+  workflow_call:
   workflow_dispatch:
     inputs:
       huri_core_ref:
@@ -120,3 +121,9 @@ jobs:
       - run: pip install build twine
       - run: python -m build --outdir dist .
       - run: twine check dist/*
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        uses: actions/upload-artifact@v4
+        with:
+          name: huri-playground-dev-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
