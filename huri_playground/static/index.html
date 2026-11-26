@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Talk with HuRI</title>
     <link rel="stylesheet" href="/static/style.css" />
-    <script src="/static/app.js" defer></script>
     <script type="importmap">
       {
         "imports": {
@@ -14,6 +13,7 @@
         }
       }
     </script>
+    <script type="module" src="/static/app.js"></script>
     <script type="module" src="/static/avatar.js"></script>
   </head>
   <body data-screen="welcome">
@@ -56,10 +56,25 @@
                 I agree to take part and to have my ratings stored anonymously.
                 <span class="muted small">
                   We keep how long the conversation lasted and how many messages
-                  you sent, but not what you wrote.
+                  you sent, but not what you wrote to HuRI, except the optional
+                  comment you leave at the end. If you turn the microphone on,
+                  your voice is sent to HuRI to be understood.
                 </span>
               </span>
             </label>
+            <label class="check">
+              <input id="remember" type="checkbox" autocomplete="off" />
+              <span>
+                Let HuRI remember me
+                <span class="muted small">
+                  HuRI keeps what you tell it on its server, linked to a random
+                  id stored in this browser, so your next conversation here can
+                  pick up where this one ended. What it understands from your
+                  voice is kept too.
+                </span>
+              </span>
+            </label>
+            <div id="memory-row" class="memory-row" aria-live="polite"></div>
             <p id="start-error" class="error" role="alert" hidden></p>
             <button id="start-button" type="submit" class="primary">
               Start the conversation
@@ -108,10 +123,18 @@
         <h2 id="survey-title"></h2>
         <form id="survey-form" novalidate>
           <div id="survey-body"></div>
-          <label id="comment-field" class="field" hidden>
-            <span class="label">Anything else you want to tell us? (optional)</span>
-            <textarea id="comment" rows="3" maxlength="2000"></textarea>
-          </label>
+          <div id="comment-field" class="field" hidden>
+            <label>
+              <span class="label">Anything else you want to tell us? (optional)</span>
+              <textarea
+                id="comment"
+                rows="3"
+                maxlength="2000"
+                aria-describedby="comment-hint"
+              ></textarea>
+            </label>
+            <p id="comment-hint" class="muted small">Please don't put personal details in the comment.</p>
+          </div>
           <p id="survey-error" class="error" role="alert" hidden></p>
           <button id="survey-next" type="submit" class="primary">Next</button>
         </form>

@@ -11,6 +11,7 @@ real ones.
 
 import asyncio
 import json
+import logging
 import struct
 import time
 
@@ -18,11 +19,13 @@ import pytest
 import websockets
 from fastapi.testclient import TestClient
 
-from huri_playground.gateway import Settings, create_app
+from huri_playground import gateway as gateway_module
+from huri_playground.gateway import CATALOG_TTL_S, Settings, create_app
 from huri_playground.questionnaire import load_questionnaires
+from huri_playground.visitor_identity import huri_user_id
 
-from . import curated
 from .curated import modules_reply
+from .test_visitor_identity import INVALID, ONE_OFF_USER_ID
 
 VOICE = ["vad", "stt", "tag", "qag", "rag", "tts"]
 
@@ -129,11 +132,16 @@ def make_client(tmp_path, monkeypatch):
     return make
 
 
-def start(ws, modules=("rag",), access_code=""):
-    ws.send_json(
-        {"type": "start", "modules": list(modules), "access_code": access_code}
-    )
+def start(ws, modules=("rag",), access_code="", visitor=None):
+    message = {"type": "start", "modules": list(modules), "access_code": access_code}
+    if visitor is not None:
+        message["visitor"] = visitor
+    ws.send_json(message)
     return ws.receive_json()
+
+
+def a_visitor_id(n):
+    return f"{n:032x}"
 
 
 def mic_frame(payload=b"\x00" * 960, topic=b"huri.audio.in"):
@@ -226,7 +234,7 @@ def test_visitors_pick_modules_but_never_their_args(make_client):
         assert ws.receive_json()["type"] == "ready"
 
     handshake = huri.handshake
-    assert set(handshake) == {"user_id", "modules", "send", "subscribe"}
+    assert set(handshake) == {"user_id", "modules", "send", "subscribe", "event_policy"}
     assert handshake["modules"]["rag"]["name"] == "rag"
     assert handshake["modules"]["rag"]["args"]["tone"] == "friendly"
     assert handshake["user_id"].startswith("playground-")
@@ -246,7 +254,7 @@ def test_voice_out_streams_huri_audio_and_gestures_to_the_browser(
         ready = start(ws, modules=["rag", "tts", "mov"])
         # What HuRI will stream: with huri.motion, the avatar gestures.
         assert ready["outbound"] == ["huri.token", "huri.audio.out", "huri.motion"]
-        assert ready["modules"] == ["mov", "rag", "tts"]
+        assert ready["modules"] == ["rag", "tts", "mov"]
         huri.out.put_nowait(audio)
         # Relayed byte for byte: the SDK decodes it as bytes and frames it again.
         assert ws.receive_bytes() == audio
@@ -302,9 +310,8 @@ def test_question_builder_waits_for_emotion_only_when_one_is_coming(make_client)
     assert "huri.emotion" in huri.handshake["subscribe"]
 
 
-def test_lip_sync_streams_the_face_with_the_voice(make_client, monkeypatch):
+def test_lip_sync_streams_the_face_with_the_voice(make_client):
     """huri-module-lips-sync's `lips`: the avatar's mouth follows its frames."""
-    monkeypatch.setitem(curated.CURATED, "lips", ("huri.audio.out", "huri.lips.face"))
     client, huri = make_client()
 
     with client.websocket_connect("/ws") as ws:
@@ -342,6 +349,19 @@ def test_pipelines_that_cannot_run_are_refused(make_client, modules):
 def start_with(ws, modules, options):
     ws.send_json({"type": "start", "modules": modules, "options": options})
     return ws.receive_json()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [["parallel"], {"parallel": 1}, 1, None],
+    ids=["list", "dict", "number", "null"],
+)
+def test_an_option_value_that_is_not_text_refuses_the_pipeline(make_client, value):
+    client, _ = make_client()
+    with client.websocket_connect("/ws") as ws:
+        reply = start_with(ws, VOICE + ["emo", "eag"], {"qag": {"mode": value}})
+    assert reply["type"] == "error"
+    assert reply["reason"] == "invalid_pipeline"
 
 
 def test_emotion_and_answer_run_in_parallel_by_default(make_client, tmp_path):
@@ -462,14 +482,61 @@ def test_an_old_huri_without_module_details_counts_as_down(make_client):
     assert client.get("/api/config").json()["huri_available"] is False
 
 
-def test_each_visit_gets_its_own_user_id(make_client):
+def test_the_same_visitor_keeps_the_same_huri_user_id(make_client):
     client, huri = make_client()
-    ids = []
+    for _ in range(2):
+        with client.websocket_connect("/ws") as ws:
+            assert start(ws, visitor=a_visitor_id(2))["type"] == "ready"
+    first, second = (handshake["user_id"] for handshake in huri.handshakes)
+    assert first == second == huri_user_id(a_visitor_id(2))
+    assert first.startswith("playground-")
+
+
+def test_two_visitors_get_two_huri_user_ids(make_client):
+    client, huri = make_client()
+    for n in (3, 4):
+        with client.websocket_connect("/ws") as ws:
+            start(ws, visitor=a_visitor_id(n))
+    first, second = (handshake["user_id"] for handshake in huri.handshakes)
+    assert first != second
+
+
+def test_a_visit_without_a_visitor_id_gets_a_one_off_user_id(make_client):
+    client, huri = make_client()
     for _ in range(2):
         with client.websocket_connect("/ws") as ws:
             start(ws)
-        ids.append(json.loads(huri.sent[-1])["user_id"])
-    assert ids[0] != ids[1]
+    first, second = (handshake["user_id"] for handshake in huri.handshakes)
+    assert first != second
+    assert ONE_OFF_USER_ID.fullmatch(first)
+
+
+@pytest.mark.parametrize("visitor", INVALID, ids=range(len(INVALID)))
+def test_a_malformed_visitor_id_still_talks_as_nobody_in_particular(
+    make_client, visitor
+):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "start", "modules": ["rag"], "visitor": visitor})
+        assert ws.receive_json()["type"] == "ready"
+    user_id = huri.handshake["user_id"]
+    assert ONE_OFF_USER_ID.fullmatch(user_id)
+    assert user_id != visitor
+
+
+def test_the_browser_cannot_choose_the_huri_user_id(make_client):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json(
+            {
+                "type": "start",
+                "modules": ["rag"],
+                "visitor": a_visitor_id(6),
+                "user_id": "playground-alice",
+            }
+        )
+        assert ws.receive_json()["type"] == "ready"
+    assert huri.handshake["user_id"] == huri_user_id(a_visitor_id(6))
 
 
 def test_answers_can_only_be_submitted_once(make_client, tmp_path):
@@ -571,6 +638,7 @@ def test_huri_rejects_the_session(make_client):
     with client.websocket_connect("/ws") as ws:
         assert start(ws) == {"type": "error", "reason": "huri_rejected"}
     assert client.app.state.gateway.slots.in_use == 0
+    assert len(huri.handshakes) == 2
 
 
 def test_huri_closing_the_session_ends_the_conversation(make_client):
@@ -704,7 +772,10 @@ def test_public_config_lists_modules_but_not_their_args(make_client):
         "qag",
         "rag",
         "tts",
+        "lips",
         "mov",
+        "thinking",
+        "huri_emotion",
     ]
     for module in config["modules"]:
         assert set(module) == {
@@ -712,8 +783,8 @@ def test_public_config_lists_modules_but_not_their_args(make_client):
             "label",
             "description",
             "group",
-            "input",
-            "output",
+            "inputs",
+            "outputs",
             "options",
         }
     qag = next(m for m in config["modules"] if m["name"] == "qag")
@@ -732,6 +803,7 @@ def test_public_config_lists_modules_but_not_their_args(make_client):
         "huri.transcript",
         "huri.question",
         "huri.emotion",
+        "huri.emotion.out",
     ]
     # `selected: all`: every module HuRI runs, in modules.yaml's order.
     assert config["selected"] == [m["name"] for m in config["modules"]]
@@ -756,3 +828,360 @@ def test_page_is_served(make_client):
     # Browsers must revalidate, or a deploy leaves visitors on stale JS/CSS.
     assert res.headers["cache-control"] == asset.headers["cache-control"]
     assert res.headers["cache-control"] == "no-cache"
+
+
+STORED_KEYS = {
+    "submitted_at",
+    "session_id",
+    "modules",
+    "options",
+    "conversation_seconds",
+    "questions_asked",
+    "end_reason",
+    "answers",
+    "scores",
+    "comment",
+}
+
+
+def test_the_ratings_keep_the_rows_but_not_who_talked_or_what_they_said(
+    make_client, tmp_path, caplog
+):
+    caplog.set_level(logging.DEBUG)
+    client, huri = make_client()
+    visitor = a_visitor_id(5)
+    with client.websocket_connect("/ws") as ws:
+        ready = start(ws, modules=["rag", "tts", "lips"], visitor=visitor)
+        ask(ws, "My name is Alice")
+        assert read_answer(ws) == "Hello there"
+        ws.send_json({"type": "finish"})
+        assert ws.receive_json()["type"] == "ended"
+    client.post(
+        "/api/responses",
+        json={"session_id": ready["session_id"], "answers": full_answers()},
+    )
+
+    assert ready["modules"] == ["rag", "tts", "lips"]
+    [entry] = stored(tmp_path)
+    assert set(entry) == STORED_KEYS
+    assert entry["modules"] == sorted(ready["modules"])
+    user_id = huri.handshake["user_id"]
+    raw = (tmp_path / "responses.jsonl").read_text()
+    for secret in (visitor, user_id, "Alice"):
+        assert secret not in raw
+    for identity in (visitor, user_id):
+        assert identity not in caplog.text
+    assert ready["session_id"] not in user_id
+
+
+def session_error(error="event_policy ['interrupts'] is not accepted"):
+    return {"type": "session_error", "error": error, "server_modules": ["rag"]}
+
+
+def connecting_to(*answers, delay_s=0.0):
+    queue = list(answers)
+
+    async def connect(url, **kwargs):
+        await asyncio.sleep(delay_s)
+        answer = queue.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    return connect
+
+
+def handshakes(*fakes):
+    return [handshake for fake in fakes for handshake in fake.handshakes]
+
+
+def end_by_finishing(make_client, visitor):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        start(ws, visitor=visitor)
+        ws.send_json({"type": "finish"})
+        ws.receive_json()
+    assert huri.closed.is_set()
+    return client, [huri]
+
+
+def end_by_idling(make_client, visitor):
+    client, huri = make_client(idle_seconds=0.2)
+    with client.websocket_connect("/ws") as ws:
+        start(ws, visitor=visitor)
+        assert ws.receive_json() == {"type": "ended", "reason": "idle"}
+    assert huri.closed.is_set()
+    return client, [huri]
+
+
+def end_by_time_limit(make_client, visitor):
+    huri = FakeHuRI(answer=None)
+    client, _ = make_client(huri=huri, session_seconds=0.2)
+    with client.websocket_connect("/ws") as ws:
+        start(ws, visitor=visitor)
+        ask(ws, "hello")
+        assert ws.receive_json() == {"type": "clock", "max_seconds": 0.2}
+        assert ws.receive_json() == {"type": "ended", "reason": "time_limit"}
+    assert huri.closed.is_set()
+    return client, [huri]
+
+
+def end_by_leaving(make_client, visitor):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        start(ws, visitor=visitor)
+    assert huri.closed.is_set()
+    return client, [huri]
+
+
+def end_by_rejection(make_client, visitor):
+    fakes = [FakeHuRI(init_reply=session_error()) for _ in range(2)] + [FakeHuRI()]
+    client, _ = make_client(connect=connecting_to(*fakes))
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws, visitor=visitor)["reason"] == "huri_rejected"
+    return client, fakes
+
+
+def end_unreachable(make_client, visitor):
+    fake = FakeHuRI()
+    client, _ = make_client(connect=connecting_to(OSError("down"), fake))
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws, visitor=visitor)["reason"] == "huri_unavailable"
+    return client, [fake]
+
+
+def end_busy(make_client, visitor):
+    client, huri = make_client(max_sessions=1)
+    with client.websocket_connect("/ws") as other:
+        assert start(other, visitor=a_visitor_id(99))["type"] == "ready"
+        with client.websocket_connect("/ws") as ws:
+            assert start(ws, visitor=visitor)["reason"] == "busy"
+    return client, [huri]
+
+
+def end_invalid(make_client, visitor):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws, ["tts"], visitor=visitor)["reason"] == "invalid_pipeline"
+    return client, [huri]
+
+
+ENDINGS = {
+    "finished": end_by_finishing,
+    "idle": end_by_idling,
+    "time_limit": end_by_time_limit,
+    "browser_left": end_by_leaving,
+    "huri_rejected": end_by_rejection,
+    "huri_unavailable": end_unreachable,
+    "busy": end_busy,
+    "invalid_pipeline": end_invalid,
+}
+
+
+@pytest.mark.parametrize("ending", ENDINGS.values(), ids=list(ENDINGS))
+def test_the_visitor_can_talk_again_however_the_last_start_ended(make_client, ending):
+    visitor = a_visitor_id(7)
+    client, fakes = ending(make_client, visitor)
+    assert client.app.state.gateway.slots.in_use == 0
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws, visitor=visitor)["type"] == "ready"
+    assert handshakes(*fakes)[-1]["user_id"] == huri_user_id(visitor)
+
+
+def test_a_second_tab_of_the_same_visitor_is_refused_while_the_first_talks(
+    make_client,
+):
+    client, huri = make_client()
+    visitor = a_visitor_id(31)
+    with client.websocket_connect("/ws") as first:
+        assert start(first, visitor=visitor)["type"] == "ready"
+        with client.websocket_connect("/ws") as second:
+            refused = start(second, visitor=visitor)
+            assert refused == {"type": "error", "reason": "already_open"}
+        ask(first, "Still there?")
+        assert read_answer(first) == "Hello there"
+        first.send_json({"type": "finish"})
+        assert first.receive_json()["type"] == "ended"
+    with client.websocket_connect("/ws") as third:
+        assert start(third, visitor=visitor)["type"] == "ready"
+    assert len(huri.handshakes) == 2
+
+
+def test_visitors_without_a_valid_id_never_lock_each_other_out(make_client):
+    client, _ = make_client()
+    with client.websocket_connect("/ws") as first:
+        assert start(first, visitor="../x")["type"] == "ready"
+        with client.websocket_connect("/ws") as second:
+            assert start(second, visitor="../x")["type"] == "ready"
+
+
+def test_a_typed_question_on_huri_core_0_5_interrupts_the_answer(make_client):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws)["interrupts"] is True
+    rules = {"interrupts": {"huri.question": ["huri.token"]}}
+    assert huri.handshake["event_policy"] == rules
+
+
+def test_a_huri_core_0_4_gets_no_interrupt_rules(make_client):
+    huri = FakeHuRI()
+
+    async def old_core(url):
+        return modules_reply(None, huri_core="0.4.1")
+
+    client, _ = make_client(huri=huri, fetch=old_core)
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws)["interrupts"] is False
+    assert "event_policy" not in huri.handshake
+
+
+RETRY_WARNING = "retrying once without interrupt rules"
+
+
+def interruption_warnings(caplog):
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "interruption is off" in r.getMessage()
+    ]
+
+
+def test_the_interruption_off_warning_comes_once_per_huri_core_version(
+    make_client, caplog
+):
+    versions = ["0.5.0", "0.4.1", "0.4.1", "0.4.0"]
+
+    async def fetch(url):
+        return modules_reply(None, huri_core=versions.pop(0))
+
+    client, _ = make_client(fetch=fetch)
+    now = [0.0]
+    client.app.state.gateway.clock = lambda: now[0]
+    for _ in range(4):
+        assert client.get("/api/config").json()["huri_available"] is True
+        now[0] += CATALOG_TTL_S
+    warnings = interruption_warnings(caplog)
+    assert len(warnings) == 2
+    assert "0.4.1" in warnings[0] and "0.4.0" in warnings[1]
+
+
+def test_a_huri_refusing_interrupt_rules_talks_without_them(make_client, caplog):
+    fakes = [FakeHuRI(init_reply=session_error()), FakeHuRI()]
+    client, _ = make_client(connect=connecting_to(*fakes))
+    visitor = a_visitor_id(28)
+    with client.websocket_connect("/ws") as ws:
+        ready = start(ws, visitor=visitor)
+        assert ready["interrupts"] is False
+        ask(ws, "Hello?")
+        assert read_answer(ws) == "Hello there"
+    first, second = handshakes(*fakes)
+    assert "event_policy" in first
+    assert "event_policy" not in second
+    [warning] = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and RETRY_WARNING in r.getMessage()
+    ]
+    assert session_error()["error"] in warning
+    assert visitor not in caplog.text
+    assert first["user_id"] not in caplog.text
+
+
+def test_a_huri_refusing_the_retry_too_rejects_the_session(make_client):
+    fakes = [FakeHuRI(init_reply=session_error("no rag")) for _ in range(2)]
+    client, _ = make_client(connect=connecting_to(*fakes))
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws) == {"type": "error", "reason": "huri_rejected"}
+    assert len(handshakes(*fakes)) == 2
+    assert client.app.state.gateway.slots.in_use == 0
+
+
+def test_a_session_without_interrupt_rules_is_not_retried(make_client):
+    fakes = [FakeHuRI(init_reply=session_error("no vad")), FakeHuRI()]
+    client, _ = make_client(connect=connecting_to(*fakes))
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws, ["vad", "stt"])["reason"] == "huri_rejected"
+    assert len(handshakes(*fakes)) == 1
+
+
+def test_the_retry_shares_the_first_attempts_deadline(make_client, monkeypatch):
+    monkeypatch.setattr(gateway_module, "HURI_INIT_TIMEOUT_S", 0.3)
+    fakes = [FakeHuRI(init_reply=session_error()), FakeHuRI()]
+    client, _ = make_client(connect=connecting_to(*fakes, delay_s=0.2))
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws) == {"type": "error", "reason": "huri_unavailable"}
+    assert client.app.state.gateway.slots.in_use == 0
+
+
+def test_debug_logs_name_relayed_json_events_but_never_their_text(make_client, caplog):
+    caplog.set_level(logging.DEBUG)
+    huri = FakeHuRI(answer="Zanzibarian")
+    client, _ = make_client(huri=huri)
+    feeling = {"label": "joy", "intensity": 0.6, "text": "Quixotically glad"}
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws, modules=["rag", "huri_emotion"])["type"] == "ready"
+        ask(ws, "Xylophonic question")
+        assert read_answer(ws) == "Zanzibarian"
+        huri.out.put_nowait(json.dumps({"topic": "huri.emotion.out", "data": feeling}))
+        assert receive(ws)["data"] == feeling
+    for text in ("Xylophonic", "Zanzibarian", "Quixotically"):
+        assert text not in caplog.text
+    assert "'huri.emotion.out': RawJson(len:" in caplog.text
+    assert "'huri.question': RawJson(len:" in caplog.text
+
+
+SHORT_MEMORY = "short,working"
+
+
+@pytest.mark.parametrize("visitor", [None, "../x", 123], ids=["none", "path", "number"])
+def test_a_visit_without_a_visitor_id_keeps_no_long_term_memory(make_client, visitor):
+    client, huri = make_client()
+    message = {"type": "start", "modules": ["rag"]}
+    if visitor is not None:
+        message["visitor"] = visitor
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json(message)
+        assert ws.receive_json()["type"] == "ready"
+    assert huri.handshake["modules"]["rag"]["args"]["memory"] == SHORT_MEMORY
+
+
+def test_a_remembered_visitor_keeps_the_default_memory(make_client):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws, visitor=a_visitor_id(1))["type"] == "ready"
+    assert "memory" not in huri.handshake["modules"]["rag"]["args"]
+
+
+def test_a_visit_without_a_visitor_id_still_gives_think_its_body(make_client):
+    from .test_avatars import BODY
+
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json(
+            {
+                "type": "start",
+                "modules": ["rag", "thinking", "tts"],
+                "avatar": "man",
+                "body": BODY,
+            }
+        )
+        assert ws.receive_json()["type"] == "ready"
+    modules = huri.handshake["modules"]
+    assert modules["think"]["args"]["body"] == BODY
+    assert modules["rag"]["args"]["memory"] == SHORT_MEMORY
+
+
+def test_no_memory_arg_reaches_a_session_without_its_module(make_client):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws, ["vad", "stt"])["type"] == "ready"
+    assert "memory" not in json.dumps(huri.handshake)
+
+
+def test_the_avatar_args_win_over_the_without_visitor_args_on_a_clash():
+    without_visitor = {"think": {"body": "default", "pace": 1}, "rag": {"memory": "m"}}
+    avatar = {"think": {"body": "measured"}}
+    assert gateway_module._merged_args(without_visitor, avatar) == {
+        "think": {"body": "measured", "pace": 1},
+        "rag": {"memory": "m"},
+    }

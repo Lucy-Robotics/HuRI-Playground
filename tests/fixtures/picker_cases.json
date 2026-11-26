@@ -1,0 +1,134 @@
+{
+  "cases": [
+    {
+      "name": "lip sync with text but no voice",
+      "chosen": [
+        "rag",
+        "lips"
+      ],
+      "valid": false,
+      "unfed_row": "lips",
+      "unfed_topic": "huri.audio.out",
+      "feeders": [
+        "tts"
+      ]
+    },
+    {
+      "name": "lip sync alone",
+      "chosen": [
+        "lips"
+      ],
+      "valid": false,
+      "unfed_row": "lips",
+      "unfed_topic": "huri.audio.out",
+      "feeders": [
+        "tts"
+      ]
+    },
+    {
+      "name": "thinking with text but no voice",
+      "chosen": [
+        "rag",
+        "thinking"
+      ],
+      "valid": false,
+      "unfed_row": "thinking",
+      "unfed_topic": "huri.audio.out",
+      "feeders": [
+        "tts"
+      ]
+    },
+    {
+      "name": "lip sync fed only by thinking, which needs a voice",
+      "chosen": [
+        "rag",
+        "lips",
+        "thinking"
+      ],
+      "valid": false,
+      "unfed_row": "thinking",
+      "unfed_topic": "huri.audio.out",
+      "feeders": [
+        "tts"
+      ]
+    },
+    {
+      "name": "voice without text",
+      "chosen": [
+        "tts"
+      ],
+      "valid": false,
+      "unfed_row": "tts",
+      "unfed_topic": "huri.token",
+      "feeders": [
+        "rag"
+      ]
+    },
+    {
+      "name": "lip sync with a voice",
+      "chosen": [
+        "rag",
+        "lips",
+        "tts"
+      ],
+      "valid": true,
+      "unfed_row": null,
+      "unfed_topic": null,
+      "feeders": null
+    },
+    {
+      "name": "thinking with a voice",
+      "chosen": [
+        "rag",
+        "thinking",
+        "tts"
+      ],
+      "valid": true,
+      "unfed_row": null,
+      "unfed_topic": null,
+      "feeders": null
+    },
+    {
+      "name": "huri's emotion with a typed question",
+      "chosen": [
+        "rag",
+        "huri_emotion"
+      ],
+      "valid": true,
+      "unfed_row": null,
+      "unfed_topic": null,
+      "feeders": null
+    },
+    {
+      "name": "the default selection",
+      "chosen": [
+        "vad",
+        "stt",
+        "tag",
+        "emo",
+        "eag",
+        "qag",
+        "rag",
+        "tts",
+        "lips",
+        "mov",
+        "thinking",
+        "huri_emotion"
+      ],
+      "valid": true,
+      "unfed_row": null,
+      "unfed_topic": null,
+      "feeders": null
+    },
+    {
+      "name": "nothing the page shows",
+      "chosen": [
+        "vad"
+      ],
+      "valid": false,
+      "unfed_row": null,
+      "unfed_topic": null,
+      "feeders": null
+    }
+  ]
+}

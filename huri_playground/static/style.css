@@ -437,7 +437,7 @@ body:not([data-screen="welcome"]):not([data-screen="chat"]) .avatar {
   color: #fff;
 }
 
-.messages li.pending::after {
+.messages li.pending .said::after {
   content: "…";
   color: var(--muted);
 }
@@ -473,6 +473,14 @@ body:not([data-screen="welcome"]):not([data-screen="chat"]) .avatar {
   margin-top: 4px;
   font-size: 0.75rem;
   opacity: 0.85;
+}
+
+.memory-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
 }
 
 .mic-bar {

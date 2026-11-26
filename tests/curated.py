@@ -14,7 +14,15 @@ CURATED = {
     "qag": ("huri.partial_question", "huri.question"),
     "rag": ("huri.question", "huri.token"),
     "tts": ("huri.token", "huri.audio.out"),
+    "tts_phonemes": ("huri.token", "huri.audio.out"),
+    "lips": ("huri.audio.out", "huri.lips.face"),
     "mov": ("huri.audio.out", "huri.motion"),
+    "think": ("huri.question", "huri.motion"),
+    "think_say": ("huri.question", "huri.audio.out"),
+    "think_token": ("huri.token", None),
+    "think_stop": ("huri.audio.out", None),
+    "emo_react": ("huri.question", "huri.emotion.out"),
+    "emo_out": ("huri.token", "huri.emotion.out"),
 }
 
 
@@ -28,7 +36,9 @@ def details(names: Optional[Iterable[str]] = None) -> Dict[str, Dict[str, Any]]:
     }
 
 
-def modules_reply(names: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+def modules_reply(
+    names: Optional[Iterable[str]] = None, huri_core: str = "0.5.0"
+) -> Dict[str, Any]:
     """A whole ``GET /modules`` answer."""
     found = details(names)
-    return {"modules": sorted(found), "details": found, "huri_core": "0.4.0"}
+    return {"modules": sorted(found), "details": found, "huri_core": huri_core}

@@ -11,7 +11,6 @@ from huri_playground.avatars import (
     load_avatars_config,
 )
 
-from . import curated
 from .test_gateway import make_client  # noqa: F401 - the fixture
 
 # A body as the page measures it (the man, metres from the pelvis).
@@ -25,6 +24,7 @@ BODY = {
     "waist": [0.173, 0.082, 0.165],
     "hip": [0.074, 0.15],
 }
+THINKING_ALOUD = ["thinking", "tts", "rag"]
 
 
 def test_the_shipped_avatars_yaml_loads():
@@ -89,39 +89,32 @@ def test_a_camera_shot_must_be_known(tmp_path):
         load_avatars_config(path)
 
 
-@pytest.fixture
-def with_think(monkeypatch):
-    monkeypatch.setitem(curated.CURATED, "think", ("huri.question", "huri.motion"))
-
-
 def start_as(ws, modules, **fields):
     ws.send_json({"type": "start", "modules": modules, **fields})
     return ws.receive_json()
 
 
-def test_think_gets_the_avatars_body(make_client, with_think):  # noqa: F811
+def test_think_gets_the_avatars_body(make_client):  # noqa: F811
     client, huri = make_client()
     with client.websocket_connect("/ws") as ws:
-        ready = start_as(ws, ["rag", "think"], avatar="man", body=BODY)
+        ready = start_as(ws, THINKING_ALOUD, avatar="man", body=BODY)
     assert ready["type"] == "ready"
     modules = huri.handshake["modules"]
     assert modules["think"]["args"]["body"] == BODY
     assert "body" not in modules["rag"]["args"]
 
 
-def test_without_an_avatar_think_keeps_its_default_body(
-    make_client, with_think  # noqa: F811
-):
+def test_without_an_avatar_think_keeps_its_default_body(make_client):  # noqa: F811
     client, huri = make_client()
     with client.websocket_connect("/ws") as ws:
-        assert start_as(ws, ["think"])["type"] == "ready"
+        assert start_as(ws, THINKING_ALOUD)["type"] == "ready"
     assert "body" not in huri.handshake["modules"]["think"]["args"]
 
 
-def test_a_bad_body_refuses_the_session(make_client, with_think):  # noqa: F811
+def test_a_bad_body_refuses_the_session(make_client):  # noqa: F811
     client, huri = make_client()
     with client.websocket_connect("/ws") as ws:
-        reply = start_as(ws, ["think"], avatar="man", body={**BODY, "hand": "big"})
+        reply = start_as(ws, THINKING_ALOUD, avatar="man", body={**BODY, "hand": "big"})
     assert reply["type"] == "error"
     assert reply["reason"] == "invalid_pipeline"
     assert huri.sent == []

@@ -17,7 +17,7 @@ on:
     inputs:
       huri_core_ref:
         description: huri-core ref (branch or tag)
-        default: "0.4.0"
+        default: "0.5.0"
       huri_modules_ref:
         description: huri-modules ref (branch or tag), for registry.toml
         default: dev
@@ -30,7 +30,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  HURI_CORE_REF: ${{ inputs.huri_core_ref || '0.4.0' }}
+  HURI_CORE_REF: ${{ inputs.huri_core_ref || '0.5.0' }}
   HURI_MODULES_REF: ${{ inputs.huri_modules_ref || 'dev' }}
   # Never wait for credentials: a wrong ref or a private repo fails at once.
   GIT_TERMINAL_PROMPT: "0"

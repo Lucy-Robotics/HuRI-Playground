@@ -1,6 +1,6 @@
 import time
 from collections import deque
-from typing import Callable, Deque
+from typing import Callable, Deque, Set
 
 
 class SessionSlots:
@@ -22,6 +22,20 @@ class SessionSlots:
 
     def release(self) -> None:
         self.in_use = max(0, self.in_use - 1)
+
+
+class VisitorLocks:
+    def __init__(self) -> None:
+        self._held: Set[str] = set()
+
+    def try_acquire(self, key: str) -> bool:
+        if key in self._held:
+            return False
+        self._held.add(key)
+        return True
+
+    def release(self, key: str) -> None:
+        self._held.discard(key)
 
 
 class RateLimiter:
