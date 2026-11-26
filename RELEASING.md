@@ -28,5 +28,9 @@ Maintainers of `Lucy-Robotics/HuRI-Playground`:
    the changes; merge it, then merge `dev` into `main` with a PR named
    `Release X.Y.Z`.
 3. Tag `main`'s merge commit `X.Y.Z` (no `v` prefix; the first release is
-   `0.1.0`), push the tag and publish a GitHub release whose notes are the
-   changelog.
+   `0.1.0`) and push the tag. [release.yml](.github/workflows/release.yml)
+   then checks that the tag equals `version` and is on `main`, runs CI on the
+   tagged commit, builds the wheel and the sdist and publishes a GitHub
+   release with them; its notes are generated from the pull requests merged
+   since the previous tag. Edit them if the changelog needs more.
+4. Open a PR on `dev` that sets `version` to the next one with `.dev0`.
