@@ -36,7 +36,7 @@ export function needsText(topic, rows) {
   return feeders.map((row) => row.label).join(" or ");
 }
 
-export function withRow(rows, chosen, inbound, name) {
+function withFeeders(rows, chosen, inbound, name) {
   const next = new Set(chosen);
   const row = rows.find((r) => r.name === name);
   if (!row || next.has(name)) return next;
@@ -44,10 +44,57 @@ export function withRow(rows, chosen, inbound, name) {
   for (const topic of unfedInputs(row, chosenRows(rows, next), inbound)) {
     const feeders = feedersOf(topic, rows);
     if (feeders.length === 1) {
-      for (const added of withRow(rows, next, inbound, feeders[0].name)) next.add(added);
+      for (const added of withFeeders(rows, next, inbound, feeders[0].name)) next.add(added);
     }
   }
   return next;
+}
+
+function chainTo(rows, chosen, from, ends) {
+  const queue = [{ topic: from, path: [] }];
+  const seen = new Set([from]);
+  while (queue.length > 0) {
+    const { topic, path } = queue.shift();
+    for (const row of rows) {
+      if (chosen.has(row.name) || row.inputs.length !== 1 || row.inputs[0] !== topic) continue;
+      const next = [...path, row];
+      for (const out of row.outputs) {
+        if (ends.some((end) => end.inputs.includes(out))) return next;
+        if (!seen.has(out)) {
+          seen.add(out);
+          queue.push({ topic: out, path: next });
+        }
+      }
+    }
+  }
+  return [];
+}
+
+function withLinks(rows, chosen, added, inbound) {
+  const ticked = chosenRows(rows, chosen);
+  const next = new Set(chosen);
+  for (const source of ticked) {
+    const ends = ticked.filter(
+      (row) => row !== source && (added.has(source.name) || added.has(row.name)),
+    );
+    if (ends.length === 0) continue;
+    for (const topic of source.outputs) {
+      if (chosenRows(rows, next).some((row) => row.inputs.includes(topic))) continue;
+      const chain = chainTo(rows, next, topic, ends);
+      const linked = new Set([...next, ...chain.map((row) => row.name)]);
+      const linkedList = chosenRows(rows, linked);
+      if (chain.every((row) => isFed(row, linkedList, inbound))) {
+        for (const name of linked) next.add(name);
+      }
+    }
+  }
+  return next;
+}
+
+export function withRow(rows, chosen, inbound, name) {
+  const next = withFeeders(rows, chosen, inbound, name);
+  const added = new Set([...next].filter((n) => !chosen.has(n)));
+  return withLinks(rows, next, added, inbound);
 }
 
 export function withoutRow(rows, chosen, inbound, name) {
