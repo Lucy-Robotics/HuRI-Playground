@@ -5,7 +5,7 @@ import pytest
 from huri_core.core.dataclasses.config import ClientConfig
 from huri_core.core.plugins import PluginError, load_modules
 
-from huri_playground.limits import RateLimiter, SessionSlots
+from huri_playground.limits import RateLimiter, SessionSlots, VisitorLocks
 from huri_playground.pipeline import RENDERED, InvalidPipeline, load_catalog_config
 from huri_playground.questionnaire import InvalidAnswers, load_questionnaires
 from huri_playground.store import AlreadyAnswered, ResponseStore, UnknownSession
@@ -36,7 +36,7 @@ def test_module_args_match_what_huri_builds():
     packages; a module whose package is not installed is skipped."""
     config = load_catalog_config()
     assert set(config.entries) <= set(CURATED)
-    assert set(config.selected) <= set(config.entries)
+    assert config.selected == "all" or set(config.selected) <= set(config.entries)
     assert set(config.inbound) <= {topics[0] for topics in CURATED.values()}
 
     checked = 0
@@ -49,6 +49,7 @@ def test_module_args_match_what_huri_builds():
         params = inspect.signature(cls.__init__).parameters
         extra = [a for args in (entry.get("with") or {}).values() for a in args]
         extra += list(entry.get("options") or {})
+        extra += list(config.without_visitor.get(name, {}))
         for arg in list(entry.get("args") or {}) + extra:
             assert arg in params, f"{name} has no argument {arg!r}"
     if checked == 0:
@@ -56,18 +57,22 @@ def test_module_args_match_what_huri_builds():
 
 
 def test_default_selection_is_a_valid_pipeline():
-    catalog = load_catalog_config().catalog(details())
+    """Every module ticked (`selected: all`): the page opens on a selection
+    HuRI can run, typed or spoken."""
+    catalog = load_catalog_config().catalog(details(), None, "0.5.0")
+    assert catalog.selected == list(catalog.rows)
     pipeline = catalog.build(catalog.selected)
     config = ClientConfig.from_dict(pipeline.handshake("u"))
-    assert set(config.modules) == set(catalog.selected)
-    assert config.send == ["huri.question"]
-    assert config.subscribe == ["huri.token", "huri.audio.out", "huri.motion"]
+    swapped = {"tts"}
+    assert set(config.modules) == set(CURATED) - swapped
+    assert config.send == ["huri.question", "huri.audio.in"]
+    assert config.subscribe[:3] == ["huri.token", "huri.audio.out", "huri.motion"]
     assert config.modules["rag"].key == "rag"
 
 
 def test_handshake_subscribes_only_to_what_the_page_renders():
     catalog = load_catalog_config().catalog(details())
-    config = ClientConfig.from_dict(catalog.build(list(CURATED)).handshake("u"))
+    config = ClientConfig.from_dict(catalog.build(list(catalog.rows)).handshake("u"))
     assert config.subscribe == list(RENDERED)
     assert config.send == ["huri.question", "huri.audio.in"]
     assert "huri.voice" not in config.subscribe  # produced, but not shown
@@ -82,8 +87,8 @@ def test_unknown_module_gets_its_name_and_no_args():
             "label": "new",
             "description": "",
             "group": "other",
-            "input": "huri.question",
-            "output": "huri.token",
+            "inputs": ["huri.question"],
+            "outputs": ["huri.token"],
             "options": {},
         }
     ]
@@ -152,6 +157,16 @@ def test_session_slots():
     assert not slots.try_acquire()
     slots.release()
     assert slots.try_acquire()
+
+
+def test_visitor_locks():
+    locks = VisitorLocks()
+    assert locks.try_acquire("a") and locks.try_acquire("b")
+    assert not locks.try_acquire("a")
+    locks.release("a")
+    assert locks.try_acquire("a")
+    locks.release("never-taken")
+    assert not locks.try_acquire("b")
 
 
 def test_rate_limiter_window_slides():

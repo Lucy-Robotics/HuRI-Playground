@@ -3,15 +3,26 @@
 # shown, and one missing here is still offered, with its constructor defaults.
 # This file only adds what HuRI cannot know: how to present a module, and its
 # args. The
-# browser sends module names, never args, because HuRI instantiates whatever
+# browser sends row names, never args, because HuRI instantiates whatever
 # module config a client hands it.
 #
 # inbound:  topics the browser may publish (the curated `huri.*` topics of
 #           huri-events), each with its own limits. A session gets those its
 #           modules consume.
-# selected: modules ticked when the page opens.
-# groups:   how the page sorts the modules, in this order; a module with no
+# selected: rows ticked when the page opens, or `all` of those HuRI runs.
+# groups:   how the page sorts the rows, in this order; a module with no
 #           group (one HuRI added since) goes under "Other".
+# interrupts: topic -> the topics it cuts short (huri-core >= 0.5), kept for
+#           a session only for the topics it has.
+# rows:     one row the visitor ticks for several modules (members), offered
+#           with the members HuRI runs, when it runs all of `required` and at
+#           least one member with an output. It sits at its first member's
+#           place. A module that is in no row is a row of its own.
+# modules.<name>.swaps / rows.<name>.swaps: module -> the module it is replaced
+#           with when this row is ticked too, if HuRI runs both with the same
+#           topics. A swap target is never a row of its own.
+# without_visitor: module -> args added when the start carries no valid visitor
+#           id (the visitor did not ask HuRI to remember them).
 # modules.<name>.with: args added when another module is in the same pipeline.
 # modules.<name>.options: args the visitor may set, to one of the listed values
 #                         (needs: only when that module is in the pipeline too;
@@ -26,13 +37,34 @@ inbound:
     max_per_minute: 2400
     binary: true # raw 16 kHz int16 PCM
 
-selected: [rag, tts, mov]
+selected: all
+
+without_visitor:
+  rag:
+    memory: "short,working"
+
+interrupts:
+  huri.question:
+    [huri.token, huri.audio.out, huri.motion, huri.lips.face, huri.emotion.out]
 
 groups:
   listen: Hear you
   feel: Read your emotion
   think: Understand and answer
   speak: Speak and move
+
+rows:
+  thinking:
+    group: speak
+    label: Thinking
+    description: HuRI looks thoughtful and says "hmm" before it answers.
+    members: [think, think_say, think_token, think_stop]
+    required: [think_stop]
+  huri_emotion:
+    group: speak
+    label: HuRI's emotion
+    description: Shows the emotion of HuRI's reaction and of each sentence it says.
+    members: [emo_react, emo_out]
 
 modules:
   vad:
@@ -101,11 +133,34 @@ modules:
       temperature: 0.7
   tts:
     group: speak
-    label: Voice
-    description: Speaks the answers aloud.
+    label: &voice_label Voice
+    description: &voice_description Speaks the answers aloud.
     args: {}
+  tts_phonemes:
+    group: speak
+    label: *voice_label
+    description: *voice_description
+    args: {}
+  lips:
+    group: speak
+    label: Lip sync
+    description: HuRI's mouth follows the words it speaks.
+    args: {}
+    swaps: { tts: tts_phonemes }
   mov:
     group: speak
     label: Gestures
-    description: Mouse-Man gestures as HuRI speaks (EMAGE).
+    description: HuRI gestures as it speaks (EMAGE).
+    args: {}
+  think:
+    args: {}
+  think_say:
+    args: {}
+  think_token:
+    args: {}
+  think_stop:
+    args: {}
+  emo_react:
+    args: {}
+  emo_out:
     args: {}

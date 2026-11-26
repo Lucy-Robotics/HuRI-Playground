@@ -35,9 +35,14 @@ def registry_names(path: Path) -> Set[str]:
 def unknown_modules(config: Path, known: Set[str]) -> List[str]:
     raw = OmegaConf.to_container(OmegaConf.load(config), resolve=False)
     assert isinstance(raw, dict)
+    # `selected: all` names no module.
+    selected = raw.get("selected") or []
+    selected = [] if selected == "all" else selected
     named = [f"modules.{name}" for name in raw.get("modules") or {}]
-    named += [f"selected[{i}]" for i, _ in enumerate(raw.get("selected") or [])]
-    values = list(raw.get("modules") or {}) + list(raw.get("selected") or [])
+    rows = raw.get("rows") or {}
+    picked = [(i, name) for i, name in enumerate(selected) if name not in rows]
+    named += [f"selected[{i}]" for i, _ in picked]
+    values = list(raw.get("modules") or {}) + [name for _, name in picked]
     return [
         f"{config.name}: {where} = {name!r}"
         for where, name in zip(named, values)

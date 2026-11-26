@@ -2,6 +2,28 @@
 // Protocol with the gateway is documented in huri_playground/gateway.py.
 "use strict";
 
+import { sendLocked, sendsSilence, shouldCutAnswer } from "./answer-cut.js";
+import {
+  INTERRUPTED_TAG,
+  bubbleForSentence,
+  capitalize,
+  reactionTagText,
+  replyTagText,
+  sentenceText,
+} from "./emotion-tags.js";
+import { mountForgetMe } from "./forget-me.js";
+import { sentenceAsMessage } from "./heard-sentence.js";
+import {
+  checkSelection,
+  chosenRows,
+  needsText,
+  unfedInputs,
+  withRow,
+  withoutRow,
+} from "./picker-rules.js";
+import { createSpeaker } from "./speaker.js";
+import { startVisitorField } from "./visitor-id.js";
+
 const $ = (id) => document.getElementById(id);
 
 const ERRORS = {
@@ -10,6 +32,13 @@ const ERRORS = {
   huri_unavailable: "HuRI is offline at the moment. Please try again later.",
   huri_rejected: "HuRI could not start these modules. Try another combination, or later.",
   invalid_pipeline: "These modules cannot run together",
+  already_open:
+    "You already have a conversation with HuRI open in another tab. Finish it there first.",
+};
+
+const MIC_STATUS = {
+  interrupting: "Listening: just talk, even while HuRI speaks. Headphones work best.",
+  plain: "Listening: just talk.",
 };
 
 const REJECTIONS = {
@@ -30,6 +59,7 @@ const state = {
   ws: null,
   sessionId: null,
   outbound: [], // topics HuRI streams this session
+  interrupts: false,
   typed: [], // typed questions HuRI is about to echo back on `huri.question`
   lastVoiceAt: null, // last microphone frame loud enough to be speech
   turn: null, // timings of the turn being answered, see showTiming()
@@ -89,9 +119,37 @@ async function init() {
   });
 }
 
+function browserStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function randomBytes(length) {
+  return crypto.getRandomValues(new Uint8Array(length));
+}
+
+function visitorField() {
+  const shouldRemember = $("remember").checked;
+  const field = startVisitorField(shouldRemember, browserStorage(), randomBytes);
+  if (shouldRemember && !field.visitor) forgetMe.showUnavailable();
+  return field;
+}
+
+function hasSessionSocket() {
+  return state.ws !== null && state.ws.readyState !== WebSocket.CLOSED;
+}
+
 function start() {
+  if (hasSessionSocket()) return;
+  state.ended = false;
+  state.sessionId = null;
   showError($("start-error"), "");
   $("start-button").disabled = true;
+  forgetMe.setDisabled(true);
+  $("remember").disabled = true;
 
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${scheme}://${location.host}/ws`);
@@ -104,6 +162,10 @@ function start() {
         modules: picker.chosen(),
         options: picker.chosenOptions(),
         access_code: $("access-code").value,
+        ...visitorField(),
+        // The avatar on screen and its body, measured by avatar.js: modules
+        // such as huri-module-think fit their motion to it.
+        ...(window.huriAvatarBody || {}),
       }),
     );
   });
@@ -128,9 +190,11 @@ const GETS = {
   "huri.token": "writes back",
   "huri.audio.out": "speaks",
   "huri.motion": "gestures",
+  "huri.lips.face": "moves its lips with the voice",
   "huri.transcript": "shows what it hears",
   "huri.question": "shows what it understood",
   "huri.emotion": "shows the emotion it senses",
+  "huri.emotion.out": "shows how it feels about what it says",
 };
 
 // Labels of the emotion classifier (huri-modules' `emo` module).
@@ -191,7 +255,7 @@ const picker = {
       name.textContent = module.label;
       const topics = document.createElement("span");
       topics.className = "topics";
-      topics.textContent = `${module.input} → ${module.output || "—"}`;
+      topics.textContent = topicsLine(module);
       name.append(topics);
       const description = document.createElement("span");
       description.className = "muted small";
@@ -200,7 +264,7 @@ const picker = {
       needs.className = "needs";
       row.append(input, name, description, needs);
       // Kept short on the tile; the rest on hover.
-      row.title = `${module.description}\n${module.input} → ${module.output || "—"}`;
+      row.title = `${module.description}\n${topicsLine(module)}`;
       grid.append(row);
       const options = this.optionsBlock(module);
       if (options) settings.append(options);
@@ -298,89 +362,34 @@ const picker = {
     return this.modules.map((m) => m.name).filter((n) => this.selected.has(n));
   },
 
-  produced() {
-    return new Set(this.chosen().map((n) => this.byName(n).output).filter(Boolean));
-  },
-
-  fed(module, produced = this.produced()) {
-    return this.inbound.includes(module.input) || produced.has(module.input);
-  },
-
-  producers(topic) {
-    return this.modules.filter((m) => m.output === topic);
+  chosenRows() {
+    return chosenRows(this.modules, this.selected);
   },
 
   // Ticking a module also ticks what feeds it, when only one module can.
   add(name) {
-    const module = this.byName(name);
-    if (!module || this.selected.has(name)) return;
-    this.selected.add(name);
-    if (this.fed(module)) return;
-    const producers = this.producers(module.input);
-    if (producers.length === 1) this.add(producers[0].name);
+    this.selected = withRow(this.modules, this.selected, this.inbound, name);
   },
 
   // Unticking one also unticks what only it was feeding.
   remove(name) {
-    const produced = this.produced();
-    const wasFed = this.chosen().filter((n) => this.fed(this.byName(n), produced));
-    this.selected.delete(name);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      const now = this.produced();
-      for (const n of wasFed) {
-        if (this.selected.has(n) && !this.fed(this.byName(n), now)) {
-          this.selected.delete(n);
-          changed = true;
-        }
-      }
-    }
-  },
-
-  needs(module) {
-    const producers = this.producers(module.input);
-    if (producers.length === 0) return `needs "${module.input}", which no module here produces`;
-    return `needs ${producers.map((m) => m.label).join(" or ")}`;
+    this.selected = withoutRow(this.modules, this.selected, this.inbound, name);
   },
 
   // { problem } or { sends, gets }: the topics this pipeline takes and gives.
   check() {
-    const chosen = this.chosen().map((n) => this.byName(n));
-    if (chosen.length === 0) return { problem: "Pick at least one module." };
-    const produced = this.produced();
-    const unfed = chosen.find((m) => !this.fed(m, produced));
-    if (unfed) return { problem: `${unfed.label} ${this.needs(unfed)}.` };
-    const sends = this.inbound.filter((t) => chosen.some((m) => m.input === t));
-    if (sends.length === 0) {
-      return { problem: "Nothing you can type or say reaches these modules." };
-    }
-    const gets = this.rendered.filter((t) => produced.has(t));
-    if (gets.length === 0) {
-      return { problem: "These modules produce nothing this page can show." };
-    }
-    // Valid, but e.g. emotion with no question builder goes nowhere visible.
-    const silent = sends.filter((t) => !this.shows(t, chosen));
-    return { sends: sends.filter((t) => !silent.includes(t)), gets, silent };
-  },
-
-  // Whether what the page sends on `topic` leads to something it shows.
-  shows(topic, chosen, seen = new Set()) {
-    if (seen.has(topic)) return false;
-    seen.add(topic);
-    return chosen
-      .filter((m) => m.input === topic && m.output)
-      .some((m) => this.rendered.includes(m.output) || this.shows(m.output, chosen, seen));
+    return checkSelection(this.modules, this.selected, this.inbound, this.rendered);
   },
 
   refresh() {
-    const produced = this.produced();
+    const chosenList = this.chosenRows();
     for (const [name, row] of this.rows) {
       const module = this.byName(name);
       row.input.checked = this.selected.has(name);
       row.row.classList.toggle("on", row.input.checked);
-      const unfed = row.input.checked && !this.fed(module, produced);
-      row.needs.textContent = unfed ? `Also tick: ${this.needs(module).replace(/^needs /, "")}` : "";
+      const [topic] = row.input.checked ? unfedInputs(module, chosenList, this.inbound) : [];
+      const unfed = topic !== undefined;
+      row.needs.textContent = unfed ? `Also tick: ${needsText(topic, this.modules)}` : "";
       row.needs.hidden = !unfed;
       if (row.options) {
         // Always on screen, so the choice can be found; greyed out, with what
@@ -403,6 +412,10 @@ const picker = {
   },
 };
 
+function topicsLine(module) {
+  return `${module.inputs.join(", ")} → ${module.outputs.join(", ") || "—"}`;
+}
+
 function describe({ sends, gets, silent }) {
   const you = sends.length ? `You ${listOf(sends.map((t) => SENDS[t] || t), "or")}; ` : "";
   const huri = `HuRI ${listOf(gets.map((t) => GETS[t] || t), "and")}.`;
@@ -419,77 +432,19 @@ function listOf(words, joiner) {
 
 // --- Voice ----------------------------------------------------------------
 
-// Plays HuRI's `audio.out` chunks back to back, in the order they arrive.
-// avatar.js reads level() for Mouse-Man's talking cues, and contextTime() to
-// play `motion` frames in step with the voice.
-const speaker = {
-  ctx: null,
-  analyser: null,
-  samples: null,
-  next: 0, // AudioContext time at which the next chunk starts
-  // [pts, AudioContext time] of each chunk of the current utterance. Kept
-  // after the end marker: the last gesture chunk arrives after it.
-  anchors: [],
-  fresh: true, // the next chunk opens a new utterance
+const speaker = createSpeaker(() => new AudioContext(), onChunkScheduled);
 
-  unlock() {
-    if (!this.ctx) {
-      this.ctx = new AudioContext();
-      this.analyser = this.ctx.createAnalyser();
-      this.analyser.fftSize = 1024;
-      this.analyser.connect(this.ctx.destination);
-      this.samples = new Float32Array(this.analyser.fftSize);
-    }
-    this.ctx.resume();
-  },
+function onChunkScheduled(delaySeconds) {
+  const turn = state.turn;
+  // Not before the first word: audio before it is HuRI thinking aloud
+  // (huri-module-think's "hmm"), not its answer.
+  if (turn && turn.voiceAt === null && turn.firstWordAt !== null) {
+    // When this first chunk is heard, on the page's clock.
+    turn.voiceAt = performance.now() + delaySeconds * 1000;
+    showTiming();
+  }
+}
 
-  // Loudness (RMS) of what is playing right now; about 0.1 for speech.
-  level() {
-    if (!this.analyser) return 0;
-    this.analyser.getFloatTimeDomainData(this.samples);
-    let sum = 0;
-    for (const s of this.samples) sum += s * s;
-    return Math.sqrt(sum / this.samples.length);
-  },
-
-  play(sampleRate, samples, pts, end) {
-    if (this.ctx && samples.length > 0) {
-      const buffer = this.ctx.createBuffer(1, samples.length, sampleRate);
-      buffer.copyToChannel(samples, 0);
-      const source = this.ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(this.analyser);
-      this.next = Math.max(this.next, this.ctx.currentTime + 0.05);
-      source.start(this.next);
-
-      if (this.fresh) this.anchors = [];
-      this.fresh = false;
-      this.anchors.push([pts, this.next]);
-      const turn = state.turn;
-      // Not before the first word: audio before it is HuRI thinking aloud
-      // (huri-module-think's "hmm"), not its answer.
-      if (turn && turn.voiceAt === null && turn.firstWordAt !== null) {
-        // When this first chunk is heard, on the page's clock.
-        turn.voiceAt = performance.now() + (this.next - this.ctx.currentTime) * 1000;
-        showTiming();
-      }
-      this.next += buffer.duration;
-    }
-    if (end) this.fresh = true;
-  },
-
-  // True while HuRI's voice is playing, plus a short tail for the room's echo.
-  speaking() {
-    return Boolean(this.ctx) && this.next + 0.3 > this.ctx.currentTime;
-  },
-
-  // AudioContext time at which utterance time `pts` is (or was) heard.
-  contextTime(pts) {
-    let anchor = null;
-    for (const a of this.anchors) if (a[0] <= pts) anchor = a;
-    return anchor && anchor[1] + (pts - anchor[0]);
-  },
-};
 window.huriSpeaker = speaker;
 // avatar.js: when the visitor last spoke (performance.now() ms), so Mouse-Man
 // listens while they talk.
@@ -562,7 +517,7 @@ const mic = {
     if (!ws || ws.readyState !== WebSocket.OPEN || state.ended) return;
     // While HuRI talks, silence is sent instead: the speakers would otherwise
     // feed its own voice back to it as a new question.
-    const muted = speaker.speaking();
+    const muted = sendsSilence({ interrupts: state.interrupts, speaking: speaker.speaking() });
     if (!muted && rms(pcm) > SPEECH_RMS) state.lastVoiceAt = performance.now();
     const payload = new Uint8Array(muted ? pcm.byteLength : pcm);
     const frame = new Uint8Array(2 + AUDIO_IN.length + payload.length);
@@ -575,7 +530,8 @@ const mic = {
   render() {
     $("mic").setAttribute("aria-pressed", String(this.on));
     $("mic").textContent = this.on ? "Turn the microphone off" : "Turn the microphone on";
-    $("mic-status").textContent = this.on ? "Listening: just talk." : "";
+    const listening = state.interrupts ? MIC_STATUS.interrupting : MIC_STATUS.plain;
+    $("mic-status").textContent = this.on ? listening : "";
   },
 };
 
@@ -600,6 +556,12 @@ function onBinary(data) {
     window.dispatchEvent(
       new CustomEvent("huri-motion", { detail: data.slice(start) }),
     );
+  } else if (topic === "huri.lips.face") {
+    // huri-module-lips-sync, parsed by avatar.js:
+    // [f64 BE pts][u32 BE fps][u32 BE frames][float32 LE frames x 52 ARKit]
+    window.dispatchEvent(
+      new CustomEvent("huri-face", { detail: data.slice(start) }),
+    );
   }
 }
 
@@ -615,11 +577,13 @@ function onMessage(msg) {
   if (msg.topic === "huri.question") return onQuestion(msg.data);
   if (msg.topic === "huri.transcript") return onTranscript(msg.data);
   if (msg.topic === "huri.emotion") return onEmotion(msg.data);
+  if (msg.topic === "huri.emotion.out") return onHuriEmotion(msg.data);
 }
 
 function onReady(msg) {
   state.sessionId = msg.session_id;
   state.outbound = msg.outbound || [];
+  state.interrupts = msg.interrupts === true;
   // Tells avatar.js whether HuRI will send gestures this session.
   window.dispatchEvent(
     new CustomEvent("huri-session", { detail: { outbound: msg.outbound || [] } }),
@@ -718,16 +682,67 @@ function showTiming() {
   addTag(t.li, `${mode}HuRI ${verb} ${seconds(end - start)} ${after} (${parts.join(" · ")})`);
 }
 
-function capitalize(text) {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 function addTag(li, text) {
   const tag = document.createElement("span");
   tag.className = "emotion";
   tag.textContent = text;
-  li.append(tag);
+  (li.querySelector(".emotions") || li).append(tag);
   return tag;
+}
+
+function huriBubbles() {
+  return [...$("messages").querySelectorAll("li.huri")];
+}
+
+function markInterrupted(li) {
+  if (!li) return;
+  li.classList.remove("pending");
+  li.classList.add("interrupted");
+  addTag(li, INTERRUPTED_TAG);
+}
+
+function cutAnswer() {
+  const writing = Boolean(state.current);
+  const playing = speaker.isPlaying();
+  if (!shouldCutAnswer({ interrupts: state.interrupts, writing, playing })) return;
+  const voiced = huriBubbles().filter((li) => !li.classList.contains("interrupted"));
+  const answer = state.current || voiced[voiced.length - 1];
+  speaker.flush();
+  window.dispatchEvent(new CustomEvent("huri-interrupt"));
+  markInterrupted(answer);
+  state.current = null;
+}
+
+function onHuriEmotion(expression) {
+  if (expression.source === "reaction") return tagReaction(expression);
+  if (expression.source === "reply") tagSentence(expression);
+}
+
+function tagSentence(expression) {
+  const text = replyTagText(expression);
+  if (text === null) return;
+  const bubbles = huriBubbles();
+  const sentence = sentenceText(expression);
+  const found = bubbleForSentence(
+    bubbles.map((li) => ({
+      said: li.querySelector(".said").textContent,
+      isInterrupted: li.classList.contains("interrupted"),
+    })),
+    sentence,
+  );
+  if (found === -1) return;
+  const tag = addTag(bubbles[found], text);
+  if (sentence) tag.title = sentence;
+}
+
+function tagReaction(expression) {
+  const yours = $("messages").querySelectorAll("li.you");
+  const li = yours[yours.length - 1];
+  if (!li) return;
+  const text = reactionTagText(expression);
+  const existing = li.querySelector(".reaction");
+  if (existing) existing.textContent = text;
+  else addTag(li, text).classList.add("reaction");
 }
 
 function onError(reason, detail) {
@@ -735,6 +750,8 @@ function onError(reason, detail) {
   const text = ERRORS[reason] || "Something went wrong. Please try again.";
   showError($("start-error"), detail ? `${text}: ${detail}` : text);
   $("start-button").disabled = false;
+  forgetMe.setDisabled(false);
+  $("remember").disabled = false;
   show("welcome");
 }
 
@@ -779,7 +796,7 @@ function onToken(token) {
     setWaiting(false);
     return;
   }
-  state.current.textContent += token.text;
+  state.current.querySelector(".said").textContent += token.text;
   scrollMessages();
 }
 
@@ -793,6 +810,7 @@ function onQuestion(question) {
     state.typed.splice(echo, 1);
     return;
   }
+  cutAnswer();
   $("hearing").hidden = true;
   const li = addMessage("you", text);
   const turn = state.turn;
@@ -825,6 +843,13 @@ function onTranscript(transcript) {
   // The final pass over your whole sentence: from here on, HuRI is the one
   // making you wait.
   if (transcript.end && transcript.text) newTurn(state.lastVoiceAt, false);
+  const said = sentenceAsMessage(transcript, state.outbound);
+  if (said !== null) {
+    $("hearing").hidden = true;
+    addMessage("you", said);
+    gotThrough();
+    return;
+  }
   if (!transcript.text) return;
   $("hearing").textContent = `Hearing: ${transcript.text.trim()}`;
   $("hearing").hidden = false;
@@ -869,7 +894,8 @@ function onEnded(reason) {
   endConversation(ENDINGS[reason] || ENDINGS.error);
 }
 
-function onClose() {
+function onClose(event) {
+  if (state.ws === event.target) state.ws = null;
   if (state.ended) return;
   state.ended = true;
   stopTimer();
@@ -892,16 +918,22 @@ function endConversation(text) {
     $("finish-hint").textContent = "Take your time to read it back.";
     $("finish").disabled = false;
   } else {
-    showEnd("The conversation ended", `${text} Nothing to rate this time.`, true);
+    showEnd("The conversation ended", `${text} Nothing to rate this time.`, "Try again");
   }
 }
 
 function sendQuestion(e) {
   e.preventDefault();
   const text = $("question").value.trim();
-  if (!text || state.waiting || state.ended) return;
+  const locked = sendLocked({
+    interrupts: state.interrupts,
+    waiting: state.waiting,
+    ended: state.ended,
+  });
+  if (!text || locked) return;
 
   $("chat-notice").hidden = true;
+  cutAnswer();
   addMessage("you", text);
   state.current = addMessage("huri", "");
   state.current.classList.add("pending");
@@ -926,17 +958,25 @@ function finish() {
 
 function setWaiting(waiting) {
   state.waiting = waiting;
-  $("send").disabled = waiting;
+  $("send").disabled = sendLocked({ interrupts: state.interrupts, waiting, ended: state.ended });
   $("chat-status").textContent = waiting ? "HuRI is answering…" : "Your turn";
 }
 
 function addMessage(who, text) {
   const li = document.createElement("li");
   li.className = who;
-  li.textContent = text;
+  if (who === "huri") li.append(textSpan("said", text), textSpan("emotions", ""));
+  else li.textContent = text;
   $("messages").append(li);
   scrollMessages();
   return li;
+}
+
+function textSpan(className, text) {
+  const span = document.createElement("span");
+  span.className = className;
+  span.textContent = text;
+  return span;
 }
 
 function scrollMessages() {
@@ -1115,7 +1155,7 @@ async function submit() {
       }),
     });
     if (res.status === 201 || res.status === 409) {
-      showEnd("Thank you!", "Your answers were saved. You can close this page.", false);
+      showEnd("Thank you!", "Your answers were saved. You can close this page.", "Talk again");
       return;
     }
     const body = await res.json().catch(() => ({}));
@@ -1126,10 +1166,11 @@ async function submit() {
   $("survey-next").disabled = false;
 }
 
-function showEnd(title, text, canRestart) {
+function showEnd(title, text, restartLabel) {
   $("end-title").textContent = title;
   $("end-text").textContent = text;
-  $("restart").hidden = !canRestart;
+  $("restart").hidden = !restartLabel;
+  if (restartLabel) $("restart").textContent = restartLabel;
   show("end");
 }
 
@@ -1143,5 +1184,6 @@ $("finish").addEventListener("click", finish);
 $("mic").addEventListener("click", () => mic.toggle());
 $("survey-form").addEventListener("submit", nextSurveyStep);
 $("restart").addEventListener("click", () => location.reload());
+const forgetMe = mountForgetMe($("memory-row"), browserStorage());
 
 init();
