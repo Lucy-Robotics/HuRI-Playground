@@ -39,6 +39,7 @@ REQUIRED_PURE_MODULES = {
     "emotion-tags",
     "utterance-gate",
     "speaker",
+    "heard-sentence",
 }
 PURE_MODULES = sorted(
     suite.name[: -len(".test.mjs")]

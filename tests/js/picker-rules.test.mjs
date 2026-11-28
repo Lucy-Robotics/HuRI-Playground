@@ -98,3 +98,57 @@ test("what you send is listed with what HuRI shows back", () => {
   assert.deepEqual(result.gets, ["huri.transcript"]);
   assert.deepEqual(result.silent, []);
 });
+
+function ticking(...order) {
+  return [...order.reduce((set, name) => withRow(rows, set, inbound, name), new Set())].sort();
+}
+
+test("withRow links speech to what answers: Speech to text then Voice ticks both builders", () => {
+  assert.deepEqual(ticking("stt", "tts"), ["qag", "rag", "stt", "tag", "tts", "vad"]);
+});
+
+test("withRow links speech to what answers in either order", () => {
+  assert.deepEqual(ticking("tts", "stt"), ticking("stt", "tts"));
+});
+
+test("withRow links speech and emotion to HuRI's emotion", () => {
+  assert.deepEqual(ticking("stt", "emo", "eag", "huri_emotion"), [
+    "eag",
+    "emo",
+    "huri_emotion",
+    "qag",
+    "rag",
+    "stt",
+    "tag",
+    "vad",
+  ]);
+});
+
+test("withRow adds only the missing builder", () => {
+  assert.deepEqual(ticking("stt", "emo", "eag", "qag", "rag"), [
+    "eag",
+    "emo",
+    "qag",
+    "rag",
+    "stt",
+    "tag",
+    "vad",
+  ]);
+});
+
+test("withRow ticks no builder when nothing answers", () => {
+  assert.deepEqual(ticking("stt"), ["stt", "vad"]);
+  assert.deepEqual(ticking("stt", "emo", "eag"), ["eag", "emo", "stt", "vad"]);
+});
+
+test("withRow does not tick back a builder for an unrelated row", () => {
+  const start = new Set(["vad", "stt", "tag", "rag", "tts"]);
+  assert.deepEqual([...withRow(rows, start, inbound, "lips")].sort(), [
+    "lips",
+    "rag",
+    "stt",
+    "tag",
+    "tts",
+    "vad",
+  ]);
+});

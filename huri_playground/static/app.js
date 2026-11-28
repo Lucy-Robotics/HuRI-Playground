@@ -2,7 +2,7 @@
 // Protocol with the gateway is documented in huri_playground/gateway.py.
 "use strict";
 
-import { sendsSilence, shouldCutAnswer } from "./answer-cut.js";
+import { sendLocked, sendsSilence, shouldCutAnswer } from "./answer-cut.js";
 import {
   INTERRUPTED_TAG,
   bubbleForSentence,
@@ -12,6 +12,7 @@ import {
   sentenceText,
 } from "./emotion-tags.js";
 import { mountForgetMe } from "./forget-me.js";
+import { sentenceAsMessage } from "./heard-sentence.js";
 import {
   checkSelection,
   chosenRows,
@@ -842,6 +843,13 @@ function onTranscript(transcript) {
   // The final pass over your whole sentence: from here on, HuRI is the one
   // making you wait.
   if (transcript.end && transcript.text) newTurn(state.lastVoiceAt, false);
+  const said = sentenceAsMessage(transcript, state.outbound);
+  if (said !== null) {
+    $("hearing").hidden = true;
+    addMessage("you", said);
+    gotThrough();
+    return;
+  }
   if (!transcript.text) return;
   $("hearing").textContent = `Hearing: ${transcript.text.trim()}`;
   $("hearing").hidden = false;
@@ -917,7 +925,12 @@ function endConversation(text) {
 function sendQuestion(e) {
   e.preventDefault();
   const text = $("question").value.trim();
-  if (!text || state.waiting || state.ended) return;
+  const locked = sendLocked({
+    interrupts: state.interrupts,
+    waiting: state.waiting,
+    ended: state.ended,
+  });
+  if (!text || locked) return;
 
   $("chat-notice").hidden = true;
   cutAnswer();
@@ -945,7 +958,7 @@ function finish() {
 
 function setWaiting(waiting) {
   state.waiting = waiting;
-  $("send").disabled = waiting;
+  $("send").disabled = sendLocked({ interrupts: state.interrupts, waiting, ended: state.ended });
   $("chat-status").textContent = waiting ? "HuRI is answering…" : "Your turn";
 }
 

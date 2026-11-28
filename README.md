@@ -22,8 +22,11 @@ visitor, so the gateway owns what a public page needs:
 
 - **the pipeline**: the browser ticks module names among those HuRI reports on
   `GET /modules`, so the list follows whatever this HuRI runs. Ticking a module
-  ticks what feeds it (`tts` brings `rag`, `stt` brings `vad`), and the page
-  says what the pipeline does before it starts. The browser sends row names
+  ticks what feeds it (`tts` brings `rag`, `stt` brings `vad`) and the modules
+  that link it to what answers (`stt` with `rag` brings `tag` and `qag`, so a
+  spoken sentence becomes a question), and the page says what the pipeline
+  does before it starts. Without a question builder, the sentence you said
+  becomes your message once it is transcribed. The browser sends row names
   only: labels, args and the few options a visitor may set are in
   [huri_playground/modules.yaml](huri_playground/modules.yaml), and the
   gateway refuses a pipeline in which a module's input can never arrive. A
@@ -171,7 +174,8 @@ The full list is at the top of
 - In the page, a new question while HuRI is answering raises the
   `huri-interrupt` event on `window`, which stops the voice and the avatar's
   speech at once; late audio, lip and gesture chunks of the cut answer are
-  dropped.
+  dropped. With interruption, Send stays enabled while HuRI writes, so a typed
+  question can cut an answer before its voice starts.
 
 At DEBUG huri-core's `huri.client` logger logs relayed events by topic, type
 and size only (`sent 'huri.question': RawJson(len:30)`), never their text. The
