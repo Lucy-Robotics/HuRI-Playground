@@ -34,3 +34,10 @@ Maintainers of `Lucy-Robotics/HuRI-Playground`:
    release with them; its notes are generated from the pull requests merged
    since the previous tag. Edit them if the changelog needs more.
 4. Open a PR on `dev` that sets `version` to the next one with `.dev0`.
+
+The tag must be pushed on `main` once the release PR is merged there: a tag
+pushed earlier points at a commit that still has the `.devN` version, and
+release.yml refuses it. `0.1.0` is the exception: it was tagged on `a22c1c7`
+(`0.1.0.dev0`) before release.yml reached `main`, so it has no GitHub release,
+and the release commit is `eb577ad`. The tag stays where it is; `0.1.1` is the
+first release made through release.yml.
