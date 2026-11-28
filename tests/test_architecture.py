@@ -34,6 +34,7 @@ JS_COMMENTS = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
 JS_TESTS = ROOT / "tests" / "js"
 REQUIRED_PURE_MODULES = {
     "picker-rules",
+    "voice-activity",
     "visitor-id",
     "answer-cut",
     "emotion-tags",

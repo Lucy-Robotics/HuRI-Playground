@@ -160,6 +160,7 @@
     "huri.audio.out",
     "huri.motion",
     "huri.lips.face",
+    "huri.voice",
     "huri.transcript",
     "huri.question",
     "huri.emotion",

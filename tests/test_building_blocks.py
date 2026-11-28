@@ -75,7 +75,7 @@ def test_handshake_subscribes_only_to_what_the_page_renders():
     config = ClientConfig.from_dict(catalog.build(list(catalog.rows)).handshake("u"))
     assert config.subscribe == list(RENDERED)
     assert config.send == ["huri.question", "huri.audio.in"]
-    assert "huri.voice" not in config.subscribe  # produced, but not shown
+    assert "huri.voice" in config.subscribe
 
 
 def test_unknown_module_gets_its_name_and_no_args():
@@ -222,3 +222,10 @@ def test_group_must_be_declared(tmp_path):
     path.write_text("inbound: {}\ngroups: {a: A}\nmodules:\n  rag: {group: b}\n")
     with pytest.raises(ValueError, match="'b'"):
         load_catalog_config(path)
+
+
+def test_modules_that_produce_nothing_the_page_shows_are_still_refused():
+    served = {"mute": {"input": "huri.audio.in", "output": "x.hidden"}}
+    catalog = load_catalog_config().catalog(served)
+    with pytest.raises(InvalidPipeline, match="produce nothing"):
+        catalog.build(["mute"])

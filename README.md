@@ -43,7 +43,7 @@ On the HuRI side the gateway is a client of the huri-core SDK (`HuRIClient`):
 the SDK opens the websocket, sends the session handshake (the modules, the
 topics the browser `send`s: `huri.question` and `huri.audio.in`; the topics it
 `subscribe`s to: among `huri.token`, `huri.audio.out`, `huri.motion`,
-`huri.transcript`, `huri.question`, `huri.emotion`, those the pipeline
+`huri.voice`, `huri.transcript`, `huri.question`, `huri.emotion`, those the pipeline
 produces) and frames every event. The gateway relays the events without
 reading them: each subscribed topic is decoded as the raw JSON object or the
 raw bytes and framed again for the browser, unchanged, so it needs no event
@@ -99,7 +99,7 @@ the module names of `modules.yaml` against huri-modules' registry (CI does,
 at `HURI_MODULES_REF`).
 
 The page's own logic (the picker rules, the visitor id, the answer cut, the
-emotion tags, the audio scheduling) is plain ES modules in
+emotion tags, the voice activity, the audio scheduling) is plain ES modules in
 `huri_playground/static/`, tested with node's built-in runner and no npm
 package: `tests/test_page_logic.py` runs `node --check` on every script and
 `node --test` on `tests/js/*.test.mjs`. It needs node >= 20.19; without it the
@@ -308,7 +308,7 @@ and the keys of `modules.yaml`. Releases are git tags `X.Y.Z` (no `v`) on
 
 | huri-playground | huri-core | huri-modules (the server) |
 |---|---|---|
-| 0.1.x | 0.5.x (`>=0.5,<0.6`) | a set of huri-modules >= 0.2.0 serves the page (its `rag` has the `memory` argument the gateway sets for a start without a remembered visitor; the `rag` of 0.1.x has none and the server would refuse such a start); showing the emotion (`huri.emotion`) and the `emotion_earlier` flag of `huri.question` need its huri-events >= 0.2. A 0.5 server lets a new question cut the answer short (interruption). A 0.4 server still serves the page, but without interruption: the gateway starts the session without an `event_policy`, `ready.interrupts` is `false`, and a new question waits for the answer in progress |
+| 0.1.x | 0.5.x (`>=0.5,<0.6`) | a set of huri-modules >= 0.2.0 serves the page (its `rag` has the `memory` argument the gateway sets for a start without a remembered visitor; the `rag` of 0.1.x has none and the server would refuse such a start); showing the emotion (`huri.emotion`) and the `emotion_earlier` flag of `huri.question` need its huri-events >= 0.2; showing when HuRI hears you (`huri.voice`) needs its huri-events >= 0.3.1 (huri-modules#108). A 0.5 server lets a new question cut the answer short (interruption). A 0.4 server still serves the page, but without interruption: the gateway starts the session without an `event_policy`, `ready.interrupts` is `false`, and a new question waits for the answer in progress |
 
 CI tests against huri-core at the ref set by the `HURI_CORE_REF` variable of
 [ci.yml](.github/workflows/ci.yml), the release tag inside the
