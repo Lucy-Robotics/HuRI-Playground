@@ -7,8 +7,7 @@ watch its avatar talk and gesture, and answer the Godspeed (5-point) and RoSAS (
 questionnaires. It installs as the `huri-playground` package and command.
 
 HuRI-Playground is a **use case** of HuRI, not a part of it, like
-[HuRI-CLI](https://github.com/Lucy-Robotics/HuRI-CLI) (the reference client)
-or the [acceptance test site](https://github.com/Lucy-Robotics/HuRI_ATP_testsite).
+[HuRI-CLI](https://github.com/Lucy-Robotics/HuRI-CLI) (the reference client).
 It uses nothing but the public client SDK of
 [huri-core](https://github.com/Lucy-Robotics/huri-core), pinned by version
 range, and it has its own versions and releases.
@@ -61,9 +60,25 @@ question, flagged `emotion_earlier`) or waits for it (`sequential`).
 
 ## Install
 
-In a virtual environment (Python 3.10 to 3.12), from git at a ref (a release
-tag, or `dev`). huri-core is not on PyPI: give it as a git URL on the same
-command line, so pip never looks it up on an index:
+In a virtual environment (Python 3.10 to 3.12), from a clone at a ref (a
+release tag, or `dev`). huri-core is not on PyPI: give it as a git URL on the
+same command line, so pip never looks it up on an index:
+
+```sh
+git clone --branch <ref> https://github.com/Lucy-Robotics/HuRI-Playground.git
+cd HuRI-Playground
+pip install \
+  "huri-core[client] @ git+https://github.com/Lucy-Robotics/huri-core.git@<core-ref>" \
+  -e .
+scripts/fetch_avatar.sh   # the avatar; needs curl and ImageMagick
+```
+
+The install is editable because the page serves the avatar from
+`huri_playground/static/avatar/` of the installed package, and the script
+writes it into the clone: only `-e` makes the installed package the clone.
+
+Without a clone, from git: the page is text only, because the avatar models
+are not packaged (see [The avatar models](#the-avatar-models)).
 
 ```sh
 pip install \
@@ -207,9 +222,11 @@ the yaml.
 
 ### The avatar models
 
-The 3D models are not committed. Without one the page is text only; with
-several, the page shows the first of these it finds, and `?avatar=man` or
-`?avatar=mouse` picks one. They are listed in
+The 3D models are neither committed nor packaged: they go into a clone
+installed with `pip install -e .` (see [Install](#install)); a pip install from
+git has none. Without one the page is text only; with several, the page shows
+the first of these it finds, and `?avatar=man` or `?avatar=mouse` picks one.
+They are listed in
 [huri_playground/avatars.yaml](huri_playground/avatars.yaml), with how each is
 framed and moves:
 
@@ -217,14 +234,14 @@ framed and moves:
   [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox)
   library (MIT), with ARKit and viseme blend shapes, so his mouth opens with
   the voice and he blinks. `scripts/fetch_avatar.sh` downloads him (6 MB) to
-  `huri_playground/static/avatar/man/` and converts his textures to WebP; it
-  needs `curl` and ImageMagick. Another Rocketbox avatar can be given, e.g.
-  `scripts/fetch_avatar.sh Male_Adult_03`.
+  the clone's `huri_playground/static/avatar/man/` and converts his textures
+  to WebP; it needs `curl` and ImageMagick. Another Rocketbox avatar can be
+  given, e.g. `scripts/fetch_avatar.sh Male_Adult_03`.
 - **mouse**: Mouse-Man, the character of the website demo. Copy
   `frontend/public/model.fbx` from
   [HuRI_website_demo](https://github.com/Lucy-Robotics/HuRI_website_demo) (Git
-  LFS, 30 MB) to `huri_playground/static/avatar/model.fbx`. That model has no
-  mouth rig, so his mouth does not move.
+  LFS, 30 MB) to the clone's `huri_playground/static/avatar/model.fbx`. That
+  model has no mouth rig, so his mouth does not move.
 
 Everything about an avatar's size is computed from its model, so another
 model needs no measurements:
