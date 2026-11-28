@@ -10,7 +10,7 @@ one of them, and something they produce shows up on the page.
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Set, Tuple
+from typing import Any, Container, Dict, Iterable, List, Mapping, Set, Tuple
 
 from .files import load_mapping
 from .interrupts import session_interrupts, takes_interrupts
@@ -131,7 +131,7 @@ class ModuleRow:
     def options(self) -> Dict[str, Option]:
         return {name: o for m in self.members for name, o in m.options.items()}
 
-    def public(self) -> Dict[str, Any]:
+    def public(self, served: Container[str]) -> Dict[str, Any]:
         return {
             "name": self.name,
             "label": self.label,
@@ -139,7 +139,12 @@ class ModuleRow:
             "group": self.group,
             "inputs": self.inputs,
             "outputs": self.outputs,
-            "options": {name: o.public() for name, o in self.options.items()},
+            # An option whose needs HuRI doesn't run could never apply.
+            "options": {
+                name: o.public()
+                for name, o in self.options.items()
+                if o.needs is None or o.needs in served
+            },
         }
 
 
@@ -199,7 +204,7 @@ class Catalog:
             "groups": [
                 {"id": g, "label": label} for g, label in groups.items() if g in used
             ],
-            "modules": [row.public() for row in self.rows.values()],
+            "modules": [row.public(self.rows) for row in self.rows.values()],
             "inbound": list(self.inbound),
             "rendered": list(RENDERED),
             "selected": self.selected,
