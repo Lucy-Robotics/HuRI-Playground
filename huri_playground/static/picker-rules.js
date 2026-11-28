@@ -99,3 +99,15 @@ export function checkSelection(rows, chosen, inbound, rendered) {
   const silent = sends.filter((t) => !shows(t, chosenList, rendered));
   return { sends: sends.filter((t) => !silent.includes(t)), gets, silent };
 }
+
+export function listOf(words, joiner) {
+  if (words.length < 2) return words.join("");
+  return `${words.slice(0, -1).join(", ")} ${joiner} ${words[words.length - 1]}`;
+}
+
+export function optionHint(rows, moduleName, spec) {
+  const names = [moduleName, spec.needs, ...(spec.ticks || [])].filter(Boolean);
+  // Names HuRI doesn't run have no row: leave them out rather than show a raw module name.
+  const labels = [...new Set(names)].flatMap((n) => rows.find((r) => r.name === n)?.label ?? []);
+  return `Picking one also ticks ${listOf(labels, "and")}.`;
+}

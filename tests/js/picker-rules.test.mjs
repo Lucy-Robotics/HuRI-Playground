@@ -8,6 +8,7 @@ import {
   firstUnfedInput,
   isFed,
   needsText,
+  optionHint,
   producedTopics,
   chosenRows,
   withRow,
@@ -97,4 +98,23 @@ test("what you send is listed with what HuRI shows back", () => {
   assert.deepEqual(result.sends, ["huri.audio.in"]);
   assert.deepEqual(result.gets, ["huri.transcript"]);
   assert.deepEqual(result.silent, []);
+});
+
+// qag's `mode` option in huri_playground/modules.yaml (the public catalog fixture has no options).
+const optionSpec = { needs: "eag", ticks: ["tag", "eag"] };
+const running = (list) => rows.filter((row) => list.includes(row.name));
+
+test("HuRI doesn't run eag", () => {
+  const note = optionHint(running(["vad", "stt", "tag", "qag", "rag"]), "qag", optionSpec);
+  assert.doesNotMatch(note, /eag|Emotion summary/);
+  assert.equal(note, "Picking one also ticks Question builder and Sentence builder.");
+});
+
+test("HuRI runs eag", () => {
+  const note = optionHint(
+    running(["vad", "stt", "tag", "emo", "eag", "qag", "rag"]),
+    "qag",
+    optionSpec,
+  );
+  assert.equal(note, "Picking one also ticks Question builder, Emotion summary and Sentence builder.");
 });

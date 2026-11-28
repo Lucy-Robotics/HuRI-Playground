@@ -15,7 +15,9 @@ import { mountForgetMe } from "./forget-me.js";
 import {
   checkSelection,
   chosenRows,
+  listOf,
   needsText,
+  optionHint,
   unfedInputs,
   withRow,
   withoutRow,
@@ -310,9 +312,7 @@ const picker = {
       }
       const hint = document.createElement("p");
       hint.className = "option-hint";
-      const ticks = [module.name, spec.needs, ...(spec.ticks || [])].filter(Boolean);
-      const labels = [...new Set(ticks)].map((n) => (this.byName(n) || { label: n }).label);
-      hint.textContent = `Picking one also ticks ${listOf(labels, "and")}.`;
+      hint.textContent = optionHint(this.modules, module.name, spec);
       field.append(hint);
       block.append(field);
     }
@@ -422,11 +422,6 @@ function describe({ sends, gets, silent }) {
     ? ` What you ${listOf(silent.map((t) => SENDS[t] || t), "or")} reaches nothing shown here yet.`
     : "";
   return you + huri + lost;
-}
-
-function listOf(words, joiner) {
-  if (words.length < 2) return words.join("");
-  return `${words.slice(0, -1).join(", ")} ${joiner} ${words[words.length - 1]}`;
 }
 
 // --- Voice ----------------------------------------------------------------
