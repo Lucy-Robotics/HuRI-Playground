@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "huri-playground"
-version = "0.1.0"
+version = "0.1.1.dev0"
 description = "HuRI playground: a public web page to talk with a HuRI server, then rate it (Godspeed, RoSAS)"
 readme = "README.md"
 license = { file = "LICENSE" }
