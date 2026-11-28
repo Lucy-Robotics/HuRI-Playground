@@ -398,6 +398,24 @@ def fixture(name):
     return json.loads((FIXTURES / name).read_text())
 
 
+def served_without(*dropped):
+    return [n for n in CURATED if n not in dropped and n not in THINKING]
+
+
+def test_an_option_whose_needs_huri_does_not_run_is_not_offered():
+    catalog = catalog_of(served_without("eag"))
+    assert "mode" not in row_named(catalog, "qag")["options"]
+
+
+def test_an_option_whose_needs_are_served_but_not_ticked_is_still_offered():
+    assert "mode" in row_named(catalog_of(), "qag")["options"]
+
+
+def test_a_module_whose_only_option_is_hidden_still_shows():
+    catalog = catalog_of(served_without("eag"))
+    assert row_named(catalog, "qag")["options"] == {}
+
+
 def test_the_public_catalogue_fixture_is_what_the_page_gets():
     public = catalog_of().public()
     fields = ("name", "label", "group", "inputs", "outputs")
