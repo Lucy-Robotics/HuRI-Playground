@@ -279,17 +279,13 @@ textarea {
   text-align: center;
 }
 
-/* What the ticked modules make HuRI do, the consent and "Start": kept in view
-   at the bottom while the list of modules scrolls. */
+/* What the ticked modules make HuRI do, the consent and "Start". Not sticky:
+   a bar that stays on screen hides the modules under it. */
 .start-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
   margin: 0 -8px;
   padding: 2px 8px 10px;
   background: var(--card);
   border-top: 1px solid var(--line);
-  box-shadow: 0 -8px 12px -10px rgba(0, 0, 0, 0.25);
 }
 
 .summary {
@@ -902,7 +898,7 @@ body[data-screen="welcome"] .avatar {
 }
 
 /* Short screens: the start screen drops its helper line and tightens up, so
-   the modules, the mode and "Start" fit on a laptop without scrolling. */
+   more of the modules, the mode and "Start" fit on a laptop screen. */
 @media (max-height: 820px) {
   body[data-screen="welcome"] .modules > .small {
     display: none;
@@ -933,12 +929,3 @@ body[data-screen="welcome"] .avatar {
     padding-bottom: 12px;
   }
 }
-
-/* A phone on its side: a bar that stays would hide most of the list. */
-@media (max-height: 560px) {
-  .start-bar {
-    position: static;
-    box-shadow: none;
-  }
-}
-
