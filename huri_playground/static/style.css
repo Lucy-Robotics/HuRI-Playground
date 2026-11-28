@@ -448,6 +448,20 @@ body:not([data-screen="welcome"]):not([data-screen="chat"]) .avatar {
   margin: 0 0 8px;
 }
 
+.voice {
+  font-size: 0.9rem;
+}
+
+.voice.lit::before {
+  content: "";
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.4em;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 .sensing {
   display: flex;
   flex-wrap: wrap;

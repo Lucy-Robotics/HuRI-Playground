@@ -87,6 +87,13 @@ test("withoutRow unticks what only it was feeding, in a new Set", () => {
   assert.equal(start.size, 4);
 });
 
+test("voice detection alone is listed with the voice activity it shows", () => {
+  const result = checkSelection(rows, new Set(["vad"]), inbound, rendered);
+  assert.deepEqual(result.sends, ["huri.audio.in"]);
+  assert.deepEqual(result.gets, ["huri.voice"]);
+  assert.deepEqual(result.silent, []);
+});
+
 test("withoutRow keeps rows that are still fed", () => {
   const start = new Set(["rag", "tts", "lips", "mov"]);
   assert.deepEqual([...withoutRow(rows, start, inbound, "lips")].sort(), ["mov", "rag", "tts"]);
@@ -95,6 +102,6 @@ test("withoutRow keeps rows that are still fed", () => {
 test("what you send is listed with what HuRI shows back", () => {
   const result = checkSelection(rows, new Set(["vad", "stt", "tag"]), inbound, rendered);
   assert.deepEqual(result.sends, ["huri.audio.in"]);
-  assert.deepEqual(result.gets, ["huri.transcript"]);
+  assert.deepEqual(result.gets, ["huri.voice", "huri.transcript"]);
   assert.deepEqual(result.silent, []);
 });

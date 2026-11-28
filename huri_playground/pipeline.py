@@ -39,6 +39,8 @@ RENDERED: Dict[str, str] = {
     "huri.motion": BINARY_FRAME,
     # huri-module-lips-sync: ARKit weights for the avatar's mouth.
     "huri.lips.face": BINARY_FRAME,
+    # VAD frames {"data": [floats]} while the visitor speaks, {"data": null} at the end.
+    "huri.voice": JSON_FRAME,
     "huri.transcript": JSON_FRAME,
     "huri.question": JSON_FRAME,
     "huri.emotion": JSON_FRAME,

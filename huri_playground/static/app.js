@@ -22,6 +22,7 @@ import {
 } from "./picker-rules.js";
 import { createSpeaker } from "./speaker.js";
 import { startVisitorField } from "./visitor-id.js";
+import { hearsSpeech } from "./voice-activity.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -190,6 +191,7 @@ const GETS = {
   "huri.audio.out": "speaks",
   "huri.motion": "gestures",
   "huri.lips.face": "moves its lips with the voice",
+  "huri.voice": "shows when it hears you speak",
   "huri.transcript": "shows what it hears",
   "huri.question": "shows what it understood",
   "huri.emotion": "shows the emotion it senses",
@@ -508,6 +510,7 @@ const mic = {
     this.stream = null;
     this.ctx = null;
     this.on = false;
+    showVoice(false);
     this.render();
   },
 
@@ -577,6 +580,7 @@ function onMessage(msg) {
   if (msg.topic === "huri.transcript") return onTranscript(msg.data);
   if (msg.topic === "huri.emotion") return onEmotion(msg.data);
   if (msg.topic === "huri.emotion.out") return onHuriEmotion(msg.data);
+  if (msg.topic === "huri.voice") return onVoice(msg.data);
 }
 
 function onReady(msg) {
@@ -846,6 +850,18 @@ function onTranscript(transcript) {
   $("hearing").textContent = `Hearing: ${transcript.text.trim()}`;
   $("hearing").hidden = false;
   gotThrough();
+}
+
+// A live region: its text changes only when the state does, not on every frame.
+function showVoice(lit) {
+  const el = $("voice");
+  el.classList.toggle("lit", lit);
+  const text = lit ? "HuRI hears you speaking" : "";
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function onVoice(voice) {
+  showVoice(hearsSpeech(voice, mic.on));
 }
 
 // Emotion read from your voice, window by window, while you speak.

@@ -12,6 +12,7 @@ real ones.
 import asyncio
 import json
 import logging
+import re
 import struct
 import time
 
@@ -278,6 +279,7 @@ def test_microphone_frames_reach_huri(make_client):
         assert ready["outbound"] == [
             "huri.token",
             "huri.audio.out",
+            "huri.voice",
             "huri.transcript",
             "huri.question",
         ]
@@ -331,9 +333,8 @@ def test_lip_sync_streams_the_face_with_the_voice(make_client):
         ["nope"],
         ["tts"],  # huri.token comes from rag
         ["qag", "rag"],  # huri.partial_question comes from tag or eag
-        ["vad"],  # nothing the page shows
     ],
-    ids=["none", "not-a-list", "not-names", "unknown", "unfed", "unfed-2", "unseen"],
+    ids=["none", "not-a-list", "not-names", "unknown", "unfed", "unfed-2"],
 )
 def test_pipelines_that_cannot_run_are_refused(make_client, modules):
     client, huri = make_client()
@@ -730,6 +731,38 @@ class HearingHuRI(FakeHuRI):
             self.out.put_nowait(json.dumps(heard))
 
 
+def test_voice_detection_without_speech_to_text(make_client):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        ready = start(ws, modules=["vad"])
+    assert ready["type"] == "ready"
+    assert huri.handshake["subscribe"] == ["huri.voice"]
+    assert ready["outbound"] == ["huri.voice"]
+
+
+@pytest.mark.parametrize(
+    "voice",
+    [{"data": [0.01, -0.02]}, {"data": None}],
+    ids=["the-visitor-starts-speaking", "the-visitor-stops-speaking"],
+)
+def test_voice_activity_reaches_the_page_unchanged(make_client, voice):
+    client, huri = make_client()
+    with client.websocket_connect("/ws") as ws:
+        assert start(ws, modules=["vad"])["type"] == "ready"
+        huri.out.put_nowait(json.dumps({"topic": "huri.voice", "data": voice}))
+        frame = ws.receive_json()
+        if frame.get("type") == "clock":
+            frame = ws.receive_json()
+    assert frame == {"topic": "huri.voice", "data": voice}
+
+
+def test_silence_or_background_noise(make_client):
+    client, _ = make_client()
+    page = client.get("/").text
+    # A live region that is always in the page, empty until the visitor speaks.
+    assert re.search(r'<span id="voice"[^>]*role="status"></span>', page)
+
+
 def test_huri_hearing_words_starts_the_time(make_client):
     """Speech reaches HuRI as audio: its first event shows it heard words."""
     client, _ = make_client(huri=HearingHuRI(), session_seconds=0.2)
@@ -800,6 +833,7 @@ def test_public_config_lists_modules_but_not_their_args(make_client):
         "huri.audio.out",
         "huri.motion",
         "huri.lips.face",
+        "huri.voice",
         "huri.transcript",
         "huri.question",
         "huri.emotion",

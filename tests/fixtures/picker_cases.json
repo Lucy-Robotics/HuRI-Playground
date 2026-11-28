@@ -121,11 +121,11 @@
       "feeders": null
     },
     {
-      "name": "nothing the page shows",
+      "name": "voice detection alone",
       "chosen": [
         "vad"
       ],
-      "valid": false,
+      "valid": true,
       "unfed_row": null,
       "unfed_topic": null,
       "feeders": null
